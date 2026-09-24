@@ -13,7 +13,7 @@
 | 3 — Evolution Engine | 8–11 | Selection, crossover, mutation, main GA loop |
 | 4 — App & Deployment | 12–15 | Experiments/tuning, Streamlit UI, deployment, polish |
 
-**Status: Phase 1, Day 1 of 15 complete.**
+**Status: Phase 1, Day 2 of 15 complete.**
 
 ---
 
@@ -54,4 +54,64 @@ kolamnet/
 ├── data/            (empty — for your reference Kolam dataset, Day 6)
 └── outputs/
     └── day1_grid_sanity_check.png
+```
+
+---
+
+## Day 2 — Genome Encoding (Truchet-Tile Representation)
+
+**Goal:** Represent an actual Kolam pattern (not just the dot grid) as a
+chromosome the GA can mutate and cross over.
+
+**Concept:** Between every 2×2 block of neighboring pulli dots there's a
+square "cell." Traditional Kolam curves are built from two quarter-circle
+arcs per cell, in one of two possible orientations — the same idea as a
+classic **Truchet tile**. Line enough oriented tiles up and the individual
+arcs chain into continuous looping curves. This makes the genome design
+simple: one gene per cell (0 or 1, the tile orientation), where mutation =
+flip one tile, and crossover = swap a block of tiles between two parents.
+
+**What was built:**
+- `src/genome.py` — `KolamGenome` class (square grids for now; diamond-grid
+  tiling is deferred until tile-connectivity rules are settled, since its
+  cells aren't uniform 2×2 blocks)
+  - `TileType` enum: `ARC_A` (top-left↔bottom-right) / `ARC_B`
+    (top-right↔bottom-left)
+  - `.randomize()` — fills the tile grid randomly (seedable, for
+    reproducible tests)
+  - `.to_chromosome()` / `.from_chromosome()` — flattens/rebuilds the 2D
+    tile grid as a 1D list — this flat list is what selection, crossover,
+    and mutation will actually operate on in Phase 3
+  - `.cell_corners(i, j)` — pulls the 4 dot coordinates bounding a cell
+    directly from the `PulliGrid`, so genome and grid stay in sync
+  - `.as_symbol_grid()` — quick text preview (`\` / `/` per cell) for fast
+    debugging without needing to render anything
+- `src/visualize_genome.py` — draws a straight diagonal per tile (not the
+  final curved arcs yet) purely to confirm each gene maps to the right grid
+  cell with the right orientation, before building the real renderer
+
+**Verified:** For a 6×6 dot grid → 25 genes (5×5 cells), confirmed via
+printed chromosome + symbol grid. Visual sanity check
+(`day2_genome_sanity_check.png`) shows two different random seeds producing
+distinct, correctly-aligned diagonal patterns — already visibly forming the
+zigzag/diamond chains characteristic of Truchet mazes and, by extension,
+Kolam-style curves.
+
+**Why this matters for later phases:** Because the genome already maps 1:1
+onto real grid geometry, Day 3 only needs to replace each straight diagonal
+with the correct curved arc pair — no restructuring of the genome itself.
+It also means crossover/mutation (Phase 3) can operate on a plain flat list
+of 0s and 1s without needing to know anything about geometry at all.
+
+**Next (Day 3):** Build the actual Kolam renderer — replace each tile's
+diagonal placeholder with proper quarter-circle arcs so genomes render as
+real Kolam-style curves.
+
+**Files added:**
+```
+src/
+├── genome.py
+└── visualize_genome.py
+outputs/
+└── day2_genome_sanity_check.png
 ```

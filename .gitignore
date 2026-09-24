@@ -1,0 +1,12 @@
+# Virtual environment
+otproject/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment variables
+.env
