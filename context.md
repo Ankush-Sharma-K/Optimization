@@ -33,7 +33,7 @@ deployed as a working Streamlit web app.
 |---|---|---|
 | Grid representation | `grid.py` | ✅ Done (Day 1) |
 | Genome encoding | `genome.py` | ✅ Done (Day 2) |
-| Arc renderer | `renderer.py` | ⏳ Pending (Day 3) |
+| Arc renderer | `renderer.py` | ✅ Done (Day 3) — **Phase 1 complete** |
 | Population init | `population.py` | ⏳ Pending (Day 4) |
 | Symmetry fitness | `fitness_symmetry.py` | ⏳ Pending (Day 5) |
 | Dataset preprocessing | `dataset.py` | ⏳ Pending (Day 6) |
@@ -98,6 +98,14 @@ deployed as a working Streamlit web app.
 | `OUTPUT_DIR` | module constant | `os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "outputs")` — **reuse this exact pattern in every future script that saves output**, don't invent a new relative path style |
 | `plot_genome_preview(genome, ax, title)` | function | draws diagonal-per-tile preview on a given matplotlib axis |
 
+### `src/renderer.py` (core pipeline — first module later phases will call directly)
+
+| Name | Kind | Signature / Notes |
+|---|---|---|
+| `OUTPUT_DIR` | module constant | same path pattern as above |
+| `_cell_arcs(tl, tr, bl, br, tile)` | function (internal) | returns `[(center, theta1, theta2), (center, theta1, theta2)]` — the 2 arcs for one cell |
+| `render_genome(genome, ax=None, show_dots=True, line_color="#8B2E2E", line_width=2.2, dot_color="#cccccc")` | function | **the main renderer** — draws a `KolamGenome` as curved arcs on a matplotlib `Axes` and returns that `Axes`. This is the function Phase 2 (fitness) and Phase 4 (Streamlit app) should both call whenever a genome needs to become an image — don't write a second renderer elsewhere. |
+
 ---
 
 ## 4. Naming Conventions (keep consistent going forward)
@@ -127,9 +135,9 @@ deployed as a working Streamlit web app.
 
 ## 5. Currently Pending / Next Step
 
-**Day 3 — Arc Renderer.** Replace each `KolamGenome` tile's straight-diagonal
-placeholder (used only in `visualize_genome.py` for sanity-checking) with
-proper quarter-circle arcs, so genomes render as real Kolam-style curves.
-This will likely live in a new `renderer.py`, probably with a function like
-`render_genome(genome: KolamGenome) -> matplotlib.figure.Figure` — final
-name to be confirmed and added to this registry once written.
+**Day 4 — Population Initializer.** Build a `Population` class (in
+`population.py`) that holds a list of many random `KolamGenome` instances,
+ready to be scored and evolved starting Phase 2. Expected shape:
+`Population(grid: PulliGrid, size: int)` with a method to generate `size`
+randomized genomes — exact API to be confirmed and added to this registry
+once written.

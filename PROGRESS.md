@@ -13,7 +13,7 @@
 | 3 — Evolution Engine | 8–11 | Selection, crossover, mutation, main GA loop |
 | 4 — App & Deployment | 12–15 | Experiments/tuning, Streamlit UI, deployment, polish |
 
-**Status: Phase 1, Day 2 of 15 complete.**
+**Status: Phase 1, Day 3 of 15 complete — Phase 1 finished.**
 
 ---
 
@@ -114,4 +114,62 @@ src/
 └── visualize_genome.py
 outputs/
 └── day2_genome_sanity_check.png
+```
+
+---
+
+## Day 3 — Arc Renderer (Phase 1 complete)
+
+**Goal:** Replace Day 2's straight-diagonal placeholder with the actual
+quarter-circle arcs, so genomes render as real Kolam-style curves.
+
+**Concept:** Each cell's two arcs have radius = half the cell's side length,
+each centered on one corner and connecting the midpoints of that corner's
+two adjacent edges. Because every arc ends exactly at an edge midpoint —
+and every edge midpoint is shared with the neighboring cell — adjacent
+tiles' arcs always meet up perfectly. That's the mechanism that turns a
+grid of independent tiles into one continuous, looping curve instead of a
+pile of disconnected quarter-circles.
+
+**What was built:**
+- `src/renderer.py`
+  - `_cell_arcs(tl, tr, bl, br, tile)` — internal helper computing the
+    `(center, theta1, theta2)` pair for each of a cell's 2 arcs, based on
+    `TileType` (angles derived from the corner geometry: `ARC_A` hugs
+    top-left + bottom-right corners, `ARC_B` hugs top-right + bottom-left)
+  - `render_genome(genome, ax=None, show_dots=True, line_color=..., ...)` —
+    the main renderer. Draws every cell's arcs onto a matplotlib `Axes`
+    using `matplotlib.patches.Arc`, sets axis limits explicitly from
+    `grid.bounding_box()` (so it renders correctly even with dots hidden),
+    and returns the `Axes` so callers can further customize/save it.
+
+**Verified:** Rendered the same seed=1 and seed=7 genomes from Day 2 for a
+direct before/after comparison. Output
+(`day3_render_comparison.png`) shows smooth, continuous looping curves that
+never touch the dots — including fully closed loops forming naturally
+around isolated dots where two matching tiles meet — which is the defining
+visual signature of a real Kolam.
+
+**Why this matters for later phases:** `render_genome()` is now the single
+reusable entry point Phase 2's fitness functions and Phase 4's Streamlit
+app will both call whenever a genome needs to become a visible/scorable
+image. Because it just takes a `KolamGenome` and returns a matplotlib
+`Axes`, it can be reused unmodified for single-pattern previews, side by
+side comparisons, and later for exporting the final "best" pattern in the
+app.
+
+**Phase 1 (Representation & Rendering) is now complete.** We have: a
+correct dot grid, a mutation/crossover-ready genome encoding, and a
+renderer that turns any genome into an actual Kolam image.
+
+**Next (Day 4, start of Phase 2):** Build the population initializer — a
+`Population` class holding many random `KolamGenome` instances, ready for
+fitness scoring and evolution.
+
+**Files added:**
+```
+src/
+└── renderer.py
+outputs/
+└── day3_render_comparison.png
 ```

@@ -1,7 +1,7 @@
-# kolamNet — Days 1–2 Summary
+# kolamNet — Days 1–3 Summary
 
-**Phase:** 1 — Representation & Rendering
-**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2)
+**Phase:** 1 — Representation & Rendering (now complete)
+**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3)
 
 ---
 
@@ -140,27 +140,106 @@ Phase 3's crossover/mutation operators can operate on a plain flat list of
 
 ---
 
+## Day 3 — Arc Renderer (Phase 1 Complete)
+
+### Conceptual Overview
+
+Day 2 gave us a genome that maps 1:1 onto grid cells, but the visual preview
+used straight diagonal lines — a placeholder, not an actual Kolam curve.
+Day 3's job was to replace that placeholder with the real thing: proper
+quarter-circle arcs, so a genome renders as an authentic-looking Kolam
+pattern instead of a Truchet maze of straight lines.
+
+Each cell's two arcs have a radius equal to half the cell's side length.
+Each arc is centered on one corner of the cell and connects the midpoints
+of that corner's two adjacent edges:
+
+- **ARC_A** — one arc hugs the top-left corner (top-mid → left-mid), the
+  other hugs the bottom-right corner (bottom-mid → right-mid)
+- **ARC_B** — one arc hugs the top-right corner (top-mid → right-mid), the
+  other hugs the bottom-left corner (bottom-mid → left-mid)
+
+The key property that makes this work: every arc terminates *exactly* at an
+edge midpoint, and every edge midpoint is shared with the neighboring cell.
+So when two tiles sit next to each other, their arcs automatically meet up
+at that shared point — with no gaps and no extra logic needed to "connect"
+anything. This is precisely the mechanism that turns a grid of independent
+tiles into one continuous, looping curve, which is the defining visual
+signature of a real Kolam (the curve never touches a dot, and loops close
+naturally wherever the tile pattern allows).
+
+### Logical Design
+
+- Arc angles are derived purely from corner geometry, not hardcoded per
+  orientation — `_cell_arcs()` computes each arc's center and its
+  `(theta1, theta2)` sweep directly from the cell's four corner coordinates
+  and its `TileType`, keeping the renderer consistent with however
+  `KolamGenome.cell_corners()` defines a cell.
+- `render_genome()` deliberately takes a genome and returns a matplotlib
+  `Axes` (rather than immediately saving a file) — this makes it reusable
+  as the single rendering entry point for everything downstream: Phase 2's
+  fitness functions will need to render a genome to score it against the
+  reference dataset, and Phase 4's Streamlit app will need to render the
+  live "best genome so far" during evolution. Both can call this same
+  function unmodified.
+- Axis limits are computed explicitly from `grid.bounding_box()` rather
+  than relying on matplotlib's autoscaling — this keeps rendering correct
+  even when dots are hidden (`show_dots=False`), which matters once this
+  function is reused for a "clean" final output image with no debug dots.
+
+### What Was Built
+
+**`src/renderer.py`**
+- `_cell_arcs(tl, tr, bl, br, tile)` — internal helper; returns the 2
+  `(center, theta1, theta2)` arc definitions for a single cell
+- `render_genome(genome, ax=None, show_dots=True, line_color="#8B2E2E", line_width=2.2, dot_color="#cccccc")`
+  — the main renderer. Draws every cell's arcs onto a matplotlib `Axes`
+  using `matplotlib.patches.Arc`, sets axis limits from the grid's bounding
+  box, and returns the `Axes` for further customization or saving.
+
+### Verified
+
+Rendered the same seed=1 and seed=7 genomes used in the Day 2 sanity check,
+for a direct before/after comparison. The output
+(`day3_render_comparison.png`) shows smooth, continuous looping curves that
+never touch the dots — including fully closed loops forming naturally
+around isolated dots wherever two matching tiles happen to meet. This
+confirms the arc-matching logic is geometrically correct.
+
+### Why This Matters for Later Phases
+
+`render_genome()` is now the single reusable rendering entry point the rest
+of the project will build on — Phase 2's fitness scoring and Phase 4's
+Streamlit app both need to turn a genome into an image, and neither should
+need a second renderer.
+
+**Phase 1 (Representation & Rendering) is now complete.**
+
+---
+
 ## Files Produced So Far
 
 ```
 OT Project/
 ├── requirements.txt
 ├── PROGRESS.md
+├── context.md
 ├── src/
 │   ├── grid.py
 │   ├── visualize_grid.py
 │   ├── genome.py
-│   └── visualize_genome.py
+│   ├── visualize_genome.py
+│   └── renderer.py
 ├── data/       (empty — reference Kolam dataset goes here, Day 6)
 └── outputs/
     ├── day1_grid_sanity_check.png
-    └── day2_genome_sanity_check.png
+    ├── day2_genome_sanity_check.png
+    └── day3_render_comparison.png
 ```
 
 ---
 
-## Next Up: Day 3
+## Next Up: Day 4 (Start of Phase 2)
 
-Build the actual Kolam renderer — replace each tile's straight-diagonal
-placeholder with proper quarter-circle arcs, so genomes render as real
-Kolam-style curves instead of the Truchet-maze preview.
+Build the population initializer — a `Population` class holding many
+random `KolamGenome` instances, ready for fitness scoring and evolution.
