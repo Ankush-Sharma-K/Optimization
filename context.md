@@ -35,7 +35,7 @@ deployed as a working Streamlit web app.
 | Genome encoding | `genome.py` | ✅ Done (Day 2) |
 | Arc renderer | `renderer.py` | ✅ Done (Day 3) — **Phase 1 complete** |
 | Population init | `population.py` | ✅ Done (Day 4) — **start of Phase 2** |
-| Symmetry fitness | `fitness_symmetry.py` | ⏳ Pending (Day 5) |
+| Symmetry fitness | `fitness.py` | ✅ Done (Day 5) |
 | Dataset preprocessing | `dataset.py` | ⏳ Pending (Day 6) |
 | Similarity fitness | `fitness_similarity.py` | ⏳ Pending (Day 7) |
 | Selection | `selection.py` | ⏳ Pending (Day 8) |
@@ -126,6 +126,23 @@ No new module-level names beyond `OUTPUT_DIR` (same pattern as other
 sanity-check scripts). Reuses `render_genome()` from `renderer.py` directly
 — intentionally does not define its own rendering logic.
 
+### `src/fitness.py`
+
+| Name | Kind | Signature / Notes |
+|---|---|---|
+| `symmetry_score(genome)` | function | returns `float` in `[0, 1]` — averages horizontal-reflection, vertical-reflection, and 180°-rotation match fractions |
+| `loop_closure_score(genome)` | function | returns `float` in `[0, 1]` — fraction of curve (by arc count) in fully closed-loop graph components; **note: 1.0 is structurally unreachable**, this is a comparative score only |
+| `fitness(genome, symmetry_weight=0.5, loop_weight=0.5)` | function | **the main scoring entry point** — weighted sum of the two scores above. This is what Phase 3's `select()` (Day 8) should call. Expected to gain a third `similarity_weight` term once Day 7 is built — don't hardcode a 2-term signature elsewhere. |
+| `_flipped(t)` | function (internal) | `ARC_A ↔ ARC_B` |
+| `_mid(p, q)` / `_key(p)` | functions (internal) | geometry helpers for the loop-closure graph |
+| `_edge_midpoint_graph(genome)` | function (internal) | builds `{midpoint: [connected midpoints]}` adjacency map from every cell's arcs |
+
+### `src/visualize_fitness.py` (sanity-check script, not core pipeline)
+
+No new module-level names beyond `OUTPUT_DIR`. Reuses `Population`,
+`fitness()`, `symmetry_score()`, `loop_closure_score()`, and
+`render_genome()` directly.
+
 ---
 
 ## 4. Naming Conventions (keep consistent going forward)
@@ -143,8 +160,9 @@ sanity-check scripts). Reuses `render_genome()` from `renderer.py` directly
   the dots. A `KolamGenome` *has* a `PulliGrid` (`genome.grid`), not the
   other way around.
 - **Reserved names for upcoming phases** (don't reuse elsewhere):
-  - `fitness_symmetry_score()`, `fitness_similarity_score()` — planned
-    scoring functions (Days 5, 7)
+  - `fitness_similarity_score()` — planned dataset-similarity scoring
+    function (Day 7); will likely be added as a 3rd weighted term inside
+    `fitness()` in `fitness.py`, not a separate top-level scorer
   - `select()`, `crossover()`, `mutate()` — planned GA operator functions
     (Days 8–10), each expected to take/return chromosomes (flat lists),
     consistent with the "chromosome" convention above. **Note:** these
@@ -155,10 +173,7 @@ sanity-check scripts). Reuses `render_genome()` from `renderer.py` directly
 
 ## 5. Currently Pending / Next Step
 
-**Day 5 — Symmetry & Loop-Closure Fitness.** Build the first fitness
-function so genomes in a `Population` can actually be ranked against each
-other. Will likely live in `fitness_symmetry.py`, probably with a function
-like `symmetry_score(genome: KolamGenome) -> float`, using
-`PulliGrid.symmetry_axes()` (already built, Day 1) to compare a genome
-against its own rotated/reflected versions — exact API to be confirmed and
+**Day 6 — Dataset Preprocessing.** Preprocess your reference Kolam images
+(threshold/skeletonize) so Day 7 can score genomes by similarity to real
+patterns. Will likely live in `dataset.py` — exact API to be confirmed and
 added to this registry once written.

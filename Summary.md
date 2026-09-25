@@ -1,7 +1,7 @@
-# kolamNet — Days 1–4 Summary
+# kolamNet — Days 1–5 Summary
 
 **Phase:** 1 — Representation & Rendering (complete) → Phase 2 — Population & Fitness (in progress)
-**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4)
+**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5)
 
 ---
 
@@ -320,3 +320,70 @@ means none of the later phases need to rebuild that logic.
 Build the first fitness function — symmetry and loop-closure scoring —
 using the `PulliGrid.symmetry_axes()` helper already built on Day 1, so
 genomes in a population can finally be ranked against each other.
+
+---
+
+## Day 5 — Fitness v1: Symmetry & Loop-Closure Scoring
+
+### Conceptual Overview
+
+Days 1–4 built the machinery to represent and generate Kolam patterns, but
+had no way to say one pattern is "better" than another. Day 5 introduces
+the first fitness function, based on two structural signals real Kolams are
+judged by: **symmetry** (does the pattern match itself under reflection or
+rotation?) and **loop closure** (does the curve form closed loops rather
+than dead-ending at the edges?). Both scores are computed directly from the
+tile grid / connectivity structure, not from the rendered image, keeping
+evaluation fast for when the GA loop calls it every generation.
+
+### Logical Design
+
+- `symmetry_score()` works by exploiting a geometric fact about the tile
+  encoding: mirroring the grid flips `ARC_A`↔`ARC_B` (the two arcs swap
+  which corners they hug), while 180° rotation leaves tile identity
+  unchanged. This means symmetry can be checked with simple index
+  comparisons on the tile grid — no geometry or rendering required.
+- `loop_closure_score()` models the curve as a graph: nodes are cell-edge
+  midpoints, edges are individual arcs. Because boundary midpoints belong
+  to only one cell, they always end up with degree 1 (a dangling end) —
+  this is a fixed structural property of the current 2-tile encoding, not
+  something any genome can avoid. A perfect score of 1.0 is therefore
+  unreachable by design; the score is still useful for *comparing*
+  genomes, since it rewards forming more interior closed loops instead of
+  long open strands.
+- `fitness()` combines both as a weighted sum, deliberately structured so
+  Day 7's dataset-similarity score can be added as a third weighted term
+  later without changing the interface.
+
+### What Was Built
+
+**`src/fitness.py`**
+- `symmetry_score(genome)` — averaged horizontal/vertical reflection +
+  180° rotation match fraction
+- `loop_closure_score(genome)` — closed-loop fraction via the
+  edge-midpoint connectivity graph
+- `fitness(genome, symmetry_weight=0.5, loop_weight=0.5)` — combined score
+
+**`src/visualize_fitness.py`** — scores a 20-genome population, sorts by
+fitness, renders best vs. worst side by side.
+
+### Verified
+
+Scores across a 20-genome population ranged from 0.220 to 0.540 — a real,
+discriminating spread. The visual check (`day5_fitness_best_vs_worst.png`)
+shows the best-scoring genome forming more balanced, closed-loop shapes
+than the worst-scoring one, confirming the score tracks something visually
+real.
+
+### Why This Matters for Later Phases
+
+`fitness()` is now the exact scoring interface Phase 3's selection
+operator (Day 8) will call on each population member.
+
+---
+
+## Next Up: Day 6
+
+Build the dataset pipeline — preprocess the reference Kolam images
+(threshold/skeletonize) so Day 7 can score genomes by similarity to real
+patterns.

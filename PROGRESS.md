@@ -234,3 +234,64 @@ src/
 outputs/
 └── day4_population_preview.png
 ```
+
+---
+
+## Day 5 — Fitness v1: Symmetry & Loop-Closure Scoring
+
+**Goal:** Give genomes an actual quality score so they can be ranked —
+the first ingredient evolution needs.
+
+**Concept:** Two structural signals real Kolams are judged by:
+- **Symmetry** — does the tile pattern match itself under reflection/rotation?
+- **Loop closure** — how much of the curve forms closed loops vs. open
+  strands dead-ending at the boundary?
+
+Both are computed directly from the tile grid / graph structure — no
+rendering needed, which keeps scoring fast for when the GA loop (Day 11)
+calls it constantly.
+
+**What was built:**
+- `src/fitness.py`
+  - `symmetry_score(genome)` — averages 3 checks: horizontal reflection,
+    vertical reflection, 180° rotation. Under a mirror, `ARC_A`/`ARC_B`
+    flips identity (the two arcs swap which corners they hug); under 180°
+    rotation identity is unchanged. (90° rotational symmetry needs a
+    corner-permutation model not yet built — noted as a follow-up.)
+  - `loop_closure_score(genome)` — builds a graph where nodes are cell-edge
+    midpoints and edges are individual arcs, via `_edge_midpoint_graph()`.
+    Finds connected components; a component is a "closed loop" if every
+    node in it has degree 2. Score = fraction of total arcs belonging to
+    closed-loop components. Boundary midpoints always have degree 1 by
+    construction (structural property of the 2-tile encoding), so 1.0
+    isn't reachable for any genome — the score is still meaningful for
+    *comparing* genomes, since it rewards more interior closed loops over
+    long open strands.
+  - `fitness(genome, symmetry_weight=0.5, loop_weight=0.5)` — combined,
+    weighted score. Weights are a starting point, expected to be retuned
+    once dataset-similarity (Day 7) joins them.
+- `src/visualize_fitness.py` — scores a 20-genome population, sorts by
+  fitness, and renders best vs. worst side by side.
+
+**Verified:** Scores across the 20-genome population ranged from 0.220 to
+0.540 — a real, discriminating spread (not flat/uniform). Visual check
+(`day5_fitness_best_vs_worst.png`) shows the best-scoring genome forming
+more balanced, closed loop shapes than the worst.
+
+**Why this matters for later phases:** `fitness()` is now the scoring
+interface Phase 3's selection (Day 8) will call directly on each
+`Population` member. Its weighted-sum structure is designed to extend
+cleanly — Day 7's similarity score just becomes a third weighted term.
+
+**Next (Day 6):** Build the dataset pipeline — preprocess your reference
+Kolam images (threshold/skeletonize) so Day 7 can score genomes by
+similarity to them.
+
+**Files added:**
+```
+src/
+├── fitness.py
+└── visualize_fitness.py
+outputs/
+└── day5_fitness_best_vs_worst.png
+```
