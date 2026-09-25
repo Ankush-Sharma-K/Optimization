@@ -173,3 +173,64 @@ src/
 outputs/
 └── day3_render_comparison.png
 ```
+
+---
+
+## Day 4 — Population Initializer (start of Phase 2)
+
+**Goal:** Move from a single `KolamGenome` to a whole population of them,
+ready for fitness scoring and evolution.
+
+**Concept:** A GA needs many candidate solutions competing at once, not
+just one. This day is intentionally small in scope — it's about creating
+and structurally validating a batch of random genomes, not about scoring or
+evolving them yet (that starts Day 5). "Structural validity" here just
+means the tile grid is well-formed (right dimensions, real `TileType`
+values) — since every combination of Truchet tiles is a renderable pattern,
+there's no such thing as an illegal genome at this stage. Loop-closure and
+aesthetic quality checks come later, as fitness functions (Day 5 onward),
+not as validity checks here.
+
+**What was built:**
+- `src/population.py`
+  - `validate_genome(genome)` — structural validity check (dimensions +
+    valid tile values); mainly guards against bugs, not bad patterns
+  - `Population` class — `Population(grid, size, seed=None)`
+    - `.initialize()` — fills `.genomes` with `size` random, validated
+      `KolamGenome` instances (each genome seeded from the population's own
+      RNG, so runs are reproducible)
+    - `.chromosomes()` — returns the flat-list view of every genome, i.e.
+      what Phase 3's selection/crossover/mutation operators will actually
+      consume
+    - `.replace(new_genomes)` — swaps in a new generation; reserved for the
+      main GA loop (Day 11)
+    - supports `len()`, iteration, and indexing directly over its genomes
+- `src/visualize_population.py` — renders several genomes from a
+  population side by side, **reusing Day 3's `render_genome()`** exactly as
+  planned, to visually confirm the population is actually diverse rather
+  than accidentally near-identical
+
+**Verified:** Initialized a population of 8 — all 8 passed structural
+validation, and all 8 produced unique chromosomes. Visual check
+(`day4_population_preview.png`) of 6 rendered genomes confirms real pattern
+diversity: different loop shapes, different closed-loop counts, no visual
+duplicates.
+
+**Why this matters for later phases:** `Population.chromosomes()` is the
+exact interface Phase 3's operators should consume — they work on flat
+integer lists, not on `KolamGenome` objects directly, keeping the
+evolutionary logic decoupled from geometry. `.replace()` exists now so the
+Day 11 main GA loop doesn't need to modify this class later.
+
+**Next (Day 5):** Build the first fitness function — symmetry and
+loop-closure scoring — so genomes in a population can actually be ranked
+against each other.
+
+**Files added:**
+```
+src/
+├── population.py
+└── visualize_population.py
+outputs/
+└── day4_population_preview.png
+```

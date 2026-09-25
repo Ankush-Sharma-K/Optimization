@@ -11,7 +11,7 @@ import random
 import matplotlib.pyplot as plt
 
 from grid import PulliGrid
-from Genome import KolamGenome, TileType
+from genome import KolamGenome, TileType
 
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "outputs")
 os.makedirs(OUTPUT_DIR, exist_ok=True)

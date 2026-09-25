@@ -34,7 +34,7 @@ deployed as a working Streamlit web app.
 | Grid representation | `grid.py` | ✅ Done (Day 1) |
 | Genome encoding | `genome.py` | ✅ Done (Day 2) |
 | Arc renderer | `renderer.py` | ✅ Done (Day 3) — **Phase 1 complete** |
-| Population init | `population.py` | ⏳ Pending (Day 4) |
+| Population init | `population.py` | ✅ Done (Day 4) — **start of Phase 2** |
 | Symmetry fitness | `fitness_symmetry.py` | ⏳ Pending (Day 5) |
 | Dataset preprocessing | `dataset.py` | ⏳ Pending (Day 6) |
 | Similarity fitness | `fitness_similarity.py` | ⏳ Pending (Day 7) |
@@ -106,6 +106,26 @@ deployed as a working Streamlit web app.
 | `_cell_arcs(tl, tr, bl, br, tile)` | function (internal) | returns `[(center, theta1, theta2), (center, theta1, theta2)]` — the 2 arcs for one cell |
 | `render_genome(genome, ax=None, show_dots=True, line_color="#8B2E2E", line_width=2.2, dot_color="#cccccc")` | function | **the main renderer** — draws a `KolamGenome` as curved arcs on a matplotlib `Axes` and returns that `Axes`. This is the function Phase 2 (fitness) and Phase 4 (Streamlit app) should both call whenever a genome needs to become an image — don't write a second renderer elsewhere. |
 
+### `src/population.py`
+
+| Name | Kind | Signature / Notes |
+|---|---|---|
+| `validate_genome(genome)` | function | structural validity check only (dimensions + valid `TileType` values) — **not** a quality/aesthetic check; that's `fitness_*.py`'s job |
+| `Population` | class (dataclass) | `Population(grid: PulliGrid, size: int, seed: Optional[int] = None)` — square grids only, matching `KolamGenome` |
+| `Population.grid` / `.size` / `.seed` | attributes | as passed to constructor |
+| `Population.genomes` | attribute | `List[KolamGenome]` — the actual population data |
+| `Population._rng` | attribute (internal) | seeded `random.Random`, used to seed each genome's own randomization |
+| `Population.initialize()` | method | fills `.genomes` with `size` random, validated genomes; returns `self` |
+| `Population.chromosomes()` | method | returns `List[List[int]]` — **the interface Phase 3's selection/crossover/mutation operators should consume**, not `.genomes` directly |
+| `Population.replace(new_genomes)` | method | swaps in a new generation — reserved for the Day 11 main GA loop |
+| `Population.__len__` / `__iter__` / `__getitem__` | dunder methods | population behaves like a sequence of genomes directly |
+
+### `src/visualize_population.py` (sanity-check script, not core pipeline)
+
+No new module-level names beyond `OUTPUT_DIR` (same pattern as other
+sanity-check scripts). Reuses `render_genome()` from `renderer.py` directly
+— intentionally does not define its own rendering logic.
+
 ---
 
 ## 4. Naming Conventions (keep consistent going forward)
@@ -123,21 +143,22 @@ deployed as a working Streamlit web app.
   the dots. A `KolamGenome` *has* a `PulliGrid` (`genome.grid`), not the
   other way around.
 - **Reserved names for upcoming phases** (don't reuse elsewhere):
-  - `Population` — planned class in `population.py` (Day 4), will hold a
-    list of `KolamGenome` instances
   - `fitness_symmetry_score()`, `fitness_similarity_score()` — planned
     scoring functions (Days 5, 7)
   - `select()`, `crossover()`, `mutate()` — planned GA operator functions
     (Days 8–10), each expected to take/return chromosomes (flat lists),
-    consistent with the "chromosome" convention above
+    consistent with the "chromosome" convention above. **Note:** these
+    should consume `Population.chromosomes()`, not `Population.genomes`
+    directly.
 
 ---
 
 ## 5. Currently Pending / Next Step
 
-**Day 4 — Population Initializer.** Build a `Population` class (in
-`population.py`) that holds a list of many random `KolamGenome` instances,
-ready to be scored and evolved starting Phase 2. Expected shape:
-`Population(grid: PulliGrid, size: int)` with a method to generate `size`
-randomized genomes — exact API to be confirmed and added to this registry
-once written.
+**Day 5 — Symmetry & Loop-Closure Fitness.** Build the first fitness
+function so genomes in a `Population` can actually be ranked against each
+other. Will likely live in `fitness_symmetry.py`, probably with a function
+like `symmetry_score(genome: KolamGenome) -> float`, using
+`PulliGrid.symmetry_axes()` (already built, Day 1) to compare a genome
+against its own rotated/reflected versions — exact API to be confirmed and
+added to this registry once written.

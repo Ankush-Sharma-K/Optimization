@@ -1,7 +1,7 @@
-# kolamNet — Days 1–3 Summary
+# kolamNet — Days 1–4 Summary
 
-**Phase:** 1 — Representation & Rendering (now complete)
-**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3)
+**Phase:** 1 — Representation & Rendering (complete) → Phase 2 — Population & Fitness (in progress)
+**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4)
 
 ---
 
@@ -224,22 +224,99 @@ OT Project/
 ├── requirements.txt
 ├── PROGRESS.md
 ├── context.md
+├── Summary.md
 ├── src/
 │   ├── grid.py
 │   ├── visualize_grid.py
 │   ├── genome.py
 │   ├── visualize_genome.py
-│   └── renderer.py
+│   ├── renderer.py
+│   ├── population.py
+│   └── visualize_population.py
 ├── data/       (empty — reference Kolam dataset goes here, Day 6)
 └── outputs/
     ├── day1_grid_sanity_check.png
     ├── day2_genome_sanity_check.png
-    └── day3_render_comparison.png
+    ├── day3_render_comparison.png
+    └── day4_population_preview.png
 ```
 
 ---
 
-## Next Up: Day 4 (Start of Phase 2)
+## Day 4 — Population Initializer (Start of Phase 2)
 
-Build the population initializer — a `Population` class holding many
-random `KolamGenome` instances, ready for fitness scoring and evolution.
+### Conceptual Overview
+
+Everything through Day 3 dealt with a single Kolam pattern at a time. A
+genetic algorithm needs a whole **population** of candidate patterns
+competing, being ranked, and producing offspring together. Day 4 is
+deliberately narrow in scope: it's about creating and structurally
+validating a batch of random genomes — not about scoring or evolving them
+yet (that begins Day 5).
+
+It's worth being precise about what "valid" means at this stage: because
+every combination of Truchet tiles renders as *some* connected pattern,
+there's no such thing as a geometrically illegal genome. "Structural
+validity" here just means the tile grid is well-formed — correct
+dimensions, real tile values — which mainly guards against bugs rather than
+bad patterns. Judging whether a pattern is aesthetically good, symmetric,
+or made of properly closed loops is a *fitness* question, not a *validity*
+question, and that judgment starts on Day 5.
+
+### Logical Design
+
+- `Population` wraps a list of `KolamGenome` instances plus its own seeded
+  random generator, so an entire population's randomness is reproducible
+  from a single seed — not just each genome individually.
+- `Population.chromosomes()` deliberately returns the flat-list form (not
+  the `KolamGenome` objects themselves). This is the exact interface
+  Phase 3's selection, crossover, and mutation operators are meant to
+  consume, keeping evolutionary logic fully decoupled from grid geometry —
+  those operators will never need to know what a "cell" or a "tile" is.
+- `Population.replace()` was added now, even though nothing calls it yet,
+  so the Day 11 main GA loop can swap in each new generation without
+  needing to modify this class later.
+
+### What Was Built
+
+**`src/population.py`**
+- `validate_genome(genome)` — structural validity check (correct
+  dimensions, real `TileType` values only)
+- `Population` class — `Population(grid, size, seed=None)`
+  - `.initialize()` — fills `.genomes` with `size` random, validated
+    genomes (each seeded from the population's own RNG)
+  - `.chromosomes()` — flat-list view of every genome, for Phase 3's GA
+    operators
+  - `.replace(new_genomes)` — swaps in a new generation (reserved for
+    Day 11)
+  - behaves like a plain sequence: supports `len()`, iteration, indexing
+
+**`src/visualize_population.py`**
+- Renders several genomes from a population side by side, **reusing Day
+  3's `render_genome()` directly** rather than writing new rendering logic
+  — exactly the reuse pattern the renderer was designed for.
+
+### Verified
+
+Initialized a population of 8 genomes — all 8 passed structural
+validation, and all 8 produced unique chromosomes (no accidental
+duplicates from the RNG). The visual check (`day4_population_preview.png`)
+rendered 6 of them side by side, confirming genuinely diverse patterns:
+different loop shapes and different numbers of fully closed loops across
+genomes, with no two looking alike.
+
+### Why This Matters for Later Phases
+
+`Population.chromosomes()` is the exact interface Phase 3's operators
+should build against. Because fitness scoring, selection, crossover, and
+mutation all need to operate over many genomes at once, having a single
+object that already handles generation, validation, and reproducibility
+means none of the later phases need to rebuild that logic.
+
+---
+
+## Next Up: Day 5
+
+Build the first fitness function — symmetry and loop-closure scoring —
+using the `PulliGrid.symmetry_axes()` helper already built on Day 1, so
+genomes in a population can finally be ranked against each other.
