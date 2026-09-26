@@ -295,3 +295,134 @@ src/
 outputs/
 └── day5_fitness_best_vs_worst.png
 ```
+
+---
+
+## Day 6 — Dataset Preprocessing
+
+**Goal:** Prepare reference Kolam images so Day 7 can compare rendered
+genomes against real patterns on equal footing.
+
+**Concept:** Real Kolam photos/scans vary in line thickness, background
+color, and lighting — but what should actually be compared is the *shape*
+of the loops, not how thick a chalk line was. So every image (real ones and
+later, rendered genomes) goes through the same pipeline: resize to a fixed
+canvas → threshold to binary (using Otsu's method, which finds the cutoff
+automatically rather than a fixed brightness value, since real photos vary
+a lot) → skeletonize (reduce the curve to a clean 1-pixel-wide line).
+
+**What was built:**
+- `src/dataset.py`
+  - `IMAGE_SIZE = 256` — the fixed canvas size both dataset images and
+    Day 7's rendered genomes will be resized to for fair comparison
+  - `load_image_grayscale(path)` — loads any image file as grayscale
+  - `preprocess_image(image, size=IMAGE_SIZE)` — resize → threshold →
+    skeletonize; returns a boolean array (`True` = curve pixel)
+  - `load_dataset(data_dir, size=IMAGE_SIZE, extensions=...)` — loads and
+    preprocesses every image in a folder, returns `[(filename, skeleton), ...]`.
+    Meant to be called once per GA run (Day 7/11), not per-generation —
+    preprocessing is the slow part.
+- `src/visualize_dataset.py` — shows resized/thresholded/skeletonized
+  stages side by side
+
+**Verified:** No real dataset is in `data/` yet, so the pipeline was tested
+on a synthetic image (a rendered genome, saved and re-loaded as if it were
+a real photo) — confirms the full pipeline runs end-to-end. Visual check
+(`day6_preprocessing_stages.png`) shows a clean binary extraction and a
+faithful thin skeleton preserving the original curve shape.
+
+**Important note:** `preprocess_image()` currently assumes the curve is
+*darker* than the background (dark ink/lines on a lighter surface). Once
+your real dataset is dropped into `data/`, this assumption needs checking —
+if your images are the opposite (e.g. white/light chalk lines on a dark
+floor), the `binary = arr < thresh` line needs to flip to `arr > thresh`.
+This is flagged in the code comments too.
+
+**Why this matters for later phases:** Day 7's similarity scoring can now
+call `load_dataset()` once at startup, then compare each generation's
+rendered-and-preprocessed genomes against the same fixed set of reference
+skeletons — no need to reprocess the dataset every generation.
+
+**Next (Day 7):** Build the actual similarity metric — compare a rendered
+genome's skeleton against the dataset's skeletons (e.g. via pixel overlap
+or shape-based distance) and turn that into a third fitness term.
+
+**Files added:**
+```
+src/
+├── dataset.py
+└── visualize_dataset.py
+data/         <- put your real reference Kolam images here (Day 12 onward
+                 will use them for real; for now, dataset.py works on any
+                 images placed here, real or synthetic)
+outputs/
+├── day6_preprocessing_stages.png
+└── _synthetic_test_image.png  (test artifact, not a deliverable)
+```
+
+---
+
+## Dataset Received (real Kolam images)
+
+User's real reference dataset arrived: 600 images across 3 fractal Kolam
+designs (`kolam19`: 400 images, `kolam29`: 100, `kolam109`: 100), plus 3 CSV
+files containing the underlying curve-generation coordinates for each
+design. Images are clean computer-generated fractal Kolams (gray curve on
+white background, diamond-oriented, 500x500 JPEGs).
+
+**Verified:** ran the existing Day 6 pipeline (`load_image_grayscale` +
+`preprocess_image`) directly on a real sample image, no code changes
+needed — the dark-curve-on-light-background assumption already matched.
+Produced a clean, faithful skeleton (`day6_real_dataset_test.png`).
+
+**Action for user:** copy the 3 image folders (or a representative subset)
+into `data/`. CSVs are not used by the current image-based pipeline; noted
+as a possible future enhancement (direct coordinate-based comparison)
+rather than something needed now.
+
+**Note for Day 12:** dataset is imbalanced (400 vs 100 vs 100) and likely
+contains many near-duplicate variants per design — worth subsampling for
+speed when tuning, rather than necessarily using all 600 images.
+
+---
+
+## Dataset Wired to Your Actual Folder Structure
+
+Updated `dataset.py` to match your exact local layout:
+```
+data/raw/kolam19/*.jpg    (400 images)
+data/raw/kolam29/*.jpg    (100 images)
+data/raw/kolam109/*.jpg   (100 images)
+data/processed/           (cached preprocessed skeletons -- new)
+```
+
+**What changed:**
+- `load_dataset()` already walked subfolders recursively (no change needed
+  there) -- confirmed it returns `(relative_path, skeleton)` pairs like
+  `"kolam19/kolam19-0.jpg"`, so the design name travels with each entry.
+- **New:** `save_processed_dataset(dataset, processed_root)` -- caches every
+  skeleton as a PNG under `data/processed/`, mirroring the `raw/` subfolder
+  structure exactly.
+- **New:** `load_processed_dataset(processed_root)` -- reloads cached
+  skeletons directly, skipping threshold+skeletonize entirely.
+
+**Verified end-to-end on the real 600-image dataset** (mirrored locally to
+match your exact folder layout):
+- Preprocessing all 600 raw images: **5.7s**
+- Saving the cache to `data/processed/`: **1.3s**
+- Reloading 600 skeletons from cache: **0.2s** (a ~28x speedup over
+  reprocessing)
+- Cache round-trip confirmed pixel-identical to the freshly-processed
+  version, and all 600 filenames accounted for in the cache.
+
+**Why this matters for later phases:** Day 7's similarity scoring, and
+especially Day 11's GA loop (which restarts often during testing/tuning),
+should call `load_processed_dataset("data/processed")` after the first run
+rather than `load_dataset("data/raw")` every time -- this turns a ~6 second
+startup cost into ~0.2 seconds after the first run.
+
+**Files updated:**
+```
+src/
+└── dataset.py   (added save_processed_dataset, load_processed_dataset)
+```

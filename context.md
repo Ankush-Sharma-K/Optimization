@@ -36,7 +36,7 @@ deployed as a working Streamlit web app.
 | Arc renderer | `renderer.py` | ✅ Done (Day 3) — **Phase 1 complete** |
 | Population init | `population.py` | ✅ Done (Day 4) — **start of Phase 2** |
 | Symmetry fitness | `fitness.py` | ✅ Done (Day 5) |
-| Dataset preprocessing | `dataset.py` | ⏳ Pending (Day 6) |
+| Dataset preprocessing | `dataset.py` | ✅ Done (Day 6) |
 | Similarity fitness | `fitness_similarity.py` | ⏳ Pending (Day 7) |
 | Selection | `selection.py` | ⏳ Pending (Day 8) |
 | Crossover | `crossover.py` | ⏳ Pending (Day 9) |
@@ -143,6 +143,22 @@ No new module-level names beyond `OUTPUT_DIR`. Reuses `Population`,
 `fitness()`, `symmetry_score()`, `loop_closure_score()`, and
 `render_genome()` directly.
 
+### `src/dataset.py`
+
+| Name | Kind | Signature / Notes |
+|---|---|---|
+| `IMAGE_SIZE` | module constant | `= 256` — fixed canvas size for both dataset images and rendered genomes; **reuse this exact constant in `renderer.py`-based rendering for Day 7's similarity comparison, don't hardcode a different size there** |
+| `load_image_grayscale(path)` | function | loads any image file as a grayscale `np.ndarray` |
+| `preprocess_image(image, size=IMAGE_SIZE)` | function | resize → Otsu threshold → skeletonize; returns boolean 2D array (`True` = curve pixel). **Assumes dark curve on light background** — flip `<` to `>` in the `binary = ...` line if real dataset images are the opposite |
+| `load_dataset(data_dir, size=IMAGE_SIZE, extensions=(".png",".jpg",".jpeg",".bmp"))` | function | loads + preprocesses every image under `data_dir`, **recursively** (walks subfolders, e.g. `data/raw/kolam19/`, `data/raw/kolam29/`, `data/raw/kolam109/`). Returns `List[Tuple[str, np.ndarray]]` of `(relative_path, skeleton)` pairs — `relative_path` includes the subfolder, e.g. `"kolam19/kolam19-0.jpg"`. Call once per GA run, not per-generation. |
+| `save_processed_dataset(dataset, processed_root)` | function | caches every `(relative_path, skeleton)` pair from `load_dataset()` as a PNG under `processed_root`, mirroring the raw subfolder structure exactly (e.g. `kolam19/kolam19-0.jpg` → `processed_root/kolam19/kolam19-0.png`) |
+| `load_processed_dataset(processed_root)` | function | reloads cached skeletons saved by `save_processed_dataset()`, skipping threshold+skeletonize entirely. **Use this (not `load_dataset`) in Day 7/11 once the cache exists** — confirmed ~28x faster (0.2s vs 5.7s for 600 images) |
+
+### `src/visualize_dataset.py` (sanity-check script, not core pipeline)
+
+No new reusable names — imports `load_image_grayscale`, `preprocess_image`,
+`IMAGE_SIZE` from `dataset.py` directly.
+
 ---
 
 ## 4. Naming Conventions (keep consistent going forward)
@@ -173,7 +189,9 @@ No new module-level names beyond `OUTPUT_DIR`. Reuses `Population`,
 
 ## 5. Currently Pending / Next Step
 
-**Day 6 — Dataset Preprocessing.** Preprocess your reference Kolam images
-(threshold/skeletonize) so Day 7 can score genomes by similarity to real
-patterns. Will likely live in `dataset.py` — exact API to be confirmed and
-added to this registry once written.
+**Day 7 — Similarity Fitness.** Compare a rendered genome's
+preprocessed skeleton (via `renderer.render_genome()` + `dataset.preprocess_image()`)
+against the reference dataset's skeletons (from `dataset.load_dataset()`),
+and fold the result into `fitness()` in `fitness.py` as a third weighted
+term (`similarity_weight`). Reserved name: `similarity_score(genome, dataset_skeletons)`
+— exact API to be confirmed and added to this registry once written.

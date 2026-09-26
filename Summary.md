@@ -1,7 +1,7 @@
-# kolamNet — Days 1–5 Summary
+# kolamNet — Days 1–6 Summary
 
 **Phase:** 1 — Representation & Rendering (complete) → Phase 2 — Population & Fitness (in progress)
-**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5)
+**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5) + Dataset preprocessing (Day 6)
 
 ---
 
@@ -217,32 +217,6 @@ need a second renderer.
 
 ---
 
-## Files Produced So Far
-
-```
-OT Project/
-├── requirements.txt
-├── PROGRESS.md
-├── context.md
-├── Summary.md
-├── src/
-│   ├── grid.py
-│   ├── visualize_grid.py
-│   ├── genome.py
-│   ├── visualize_genome.py
-│   ├── renderer.py
-│   ├── population.py
-│   └── visualize_population.py
-├── data/       (empty — reference Kolam dataset goes here, Day 6)
-└── outputs/
-    ├── day1_grid_sanity_check.png
-    ├── day2_genome_sanity_check.png
-    ├── day3_render_comparison.png
-    └── day4_population_preview.png
-```
-
----
-
 ## Day 4 — Population Initializer (Start of Phase 2)
 
 ### Conceptual Overview
@@ -387,3 +361,107 @@ operator (Day 8) will call on each population member.
 Build the dataset pipeline — preprocess the reference Kolam images
 (threshold/skeletonize) so Day 7 can score genomes by similarity to real
 patterns.
+
+---
+
+## Day 6 — Dataset Preprocessing
+
+### Conceptual Overview
+
+Day 7 needs to compare a generated Kolam against real reference images —
+but real photos/scans vary in line thickness, background color, and
+lighting in ways that have nothing to do with pattern quality. Day 6 builds
+the preprocessing pipeline that strips away those irrelevant differences:
+every image (real reference photos, and later, rendered genomes) is resized
+to a fixed canvas, thresholded into a clean binary image, then skeletonized
+down to a 1-pixel-wide curve. Comparing skeletons means the similarity
+metric in Day 7 will be judging *shape*, not incidental image properties.
+
+### Logical Design
+
+- `IMAGE_SIZE = 256` is defined once as a shared constant specifically so
+  Day 7's genome-rendering step and the dataset's real images always end up
+  on the exact same canvas size — otherwise a pixel-based similarity
+  comparison wouldn't be meaningful.
+- Otsu's thresholding method was used instead of a fixed brightness cutoff,
+  because it automatically finds the best split point for each image
+  individually — important since real-world reference photos will vary a
+  lot in exposure/contrast, unlike our own clean rendered output.
+- `load_dataset()` is designed to run once per GA run (not once per
+  generation), since preprocessing images is comparatively slow — Day 7's
+  actual similarity scoring, run every generation, should only ever compare
+  against already-preprocessed skeletons.
+
+### What Was Built
+
+**`src/dataset.py`**
+- `IMAGE_SIZE` — shared canvas size constant (256)
+- `load_image_grayscale(path)` — loads any image as grayscale
+- `preprocess_image(image, size)` — resize → Otsu threshold → skeletonize
+- `load_dataset(data_dir, size, extensions)` — preprocesses every image in
+  a folder, returns `(filename, skeleton)` pairs
+
+**`src/visualize_dataset.py`** — shows the resized/thresholded/skeletonized
+stages side by side.
+
+### Verified
+
+No real dataset exists in `data/` yet, so the pipeline was tested on a
+synthetic image (a rendered genome, saved and reloaded as if it were a real
+photo) to confirm the full pipeline runs end to end without errors. The
+visual check (`day6_preprocessing_stages.png`) shows a clean binary
+extraction and a thin, faithful skeleton that preserves the original curve
+shape exactly.
+
+**Flagged assumption to revisit once real images are added:**
+`preprocess_image()` currently assumes the curve is darker than the
+background. If the real reference dataset has light-colored curves on a
+dark background (e.g. white/rice-flour Kolams photographed on a dark
+floor), one comparison operator needs flipping — noted directly in the
+code.
+
+### Why This Matters for Later Phases
+
+Day 7 can now call `load_dataset()` once at the start of a run, then
+compare each generation's rendered-and-preprocessed genomes against that
+same fixed set of reference skeletons — no repeated preprocessing needed.
+
+---
+
+## Files Produced So Far
+
+```
+OT Project/
+├── requirements.txt
+├── PROGRESS.md
+├── context.md
+├── Summary.md
+├── src/
+│   ├── grid.py
+│   ├── visualize_grid.py
+│   ├── genome.py
+│   ├── visualize_genome.py
+│   ├── renderer.py
+│   ├── population.py
+│   ├── visualize_population.py
+│   ├── fitness.py
+│   ├── visualize_fitness.py
+│   ├── dataset.py
+│   └── visualize_dataset.py
+├── data/       (empty — put your real reference Kolam images here)
+└── outputs/
+    ├── day1_grid_sanity_check.png
+    ├── day2_genome_sanity_check.png
+    ├── day3_render_comparison.png
+    ├── day4_population_preview.png
+    ├── day5_fitness_best_vs_worst.png
+    └── day6_preprocessing_stages.png
+```
+
+---
+
+## Next Up: Day 7
+
+Build the actual similarity metric — compare a rendered genome's
+preprocessed skeleton against the reference dataset's skeletons, and fold
+the result into `fitness()` as a third weighted term.
