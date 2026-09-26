@@ -362,6 +362,90 @@ outputs/
 
 ---
 
+## Day 7 — Similarity Fitness (dataset-based)
+
+**Goal:** Compare a rendered genome against the real reference dataset, so
+genomes are rewarded for actually resembling real Kolams — not just for
+being symmetric/closed (Day 5's scores don't know what a real Kolam looks
+like).
+
+**Concept:** Pipeline is: render the genome (`renderer.py`) → preprocess it
+through the *exact same* resize→threshold→skeletonize pipeline as the
+dataset (`dataset.py`, Day 6) → compare the resulting skeleton against
+reference skeletons using **Chamfer distance** (how far each curve pixel in
+one image is from the nearest curve pixel in the other, averaged both
+directions) → take the **best** match, not the average, since a genome only
+needs to resemble one real design well.
+
+**What was built:**
+- `src/similarity.py`
+  - `genome_to_skeleton(genome, size=IMAGE_SIZE)` — renders a genome
+    in-memory (no disk I/O) and runs it through `dataset.preprocess_image`
+  - `precompute_reference_transforms(dataset)` — precomputes each
+    reference's distance transform **once per GA run**, not per genome
+    (critical: this took per-genome scoring from ~8.5s down to ~0.35s
+    against all 600 references)
+  - `_chamfer_distance(...)` — symmetric Chamfer distance between two
+    skeletons using precomputed transforms
+  - `similarity_score(genome, reference_transforms)` — best-match score,
+    mapped to `[0, 1]` via `exp(-distance / scale)`
+  - `best_match(genome, reference_transforms)` — like above, but also
+    returns *which* reference matched best (for sanity checks now, and the
+    "closest real Kolam" display in the app, Day 13)
+- `src/visualize_similarity.py` — renders a genome next to its best-matching
+  real Kolam image, for a visual sanity check
+- `fitness.py` updated: `fitness()` now takes an optional
+  `reference_transforms` argument and adds `similarity_weight * similarity_score(...)`
+  as a third term. **When no dataset is passed, it falls back to the exact
+  Day 5 two-term behavior** (weights renormalized) — confirmed this keeps
+  every earlier script (Days 4–5) working unchanged.
+
+**Bug found and fixed during testing:** the first version used
+`(d_ab + d_ba) / 2` (plain average) for Chamfer distance. This let very
+*dense* reference images (fractals covering ~20% of the canvas) win "best
+match" purely because genome pixels are trivially close to *some* reference
+pixel — while the harder reverse direction (reference pixels needing to be
+near the much sparser genome curve) was actually worse than a real match.
+Verified this numerically (dense reference: d_ab=1.82 vs d_ba=7.70 — a huge
+asymmetry) and fixed it by switching to **`max(d_ab, d_ba)`**, which
+requires both directions to be genuinely close before a match scores well.
+Re-verified: the best match is now a comparably-scaled reference image, not
+the densest one in the dataset by coincidence.
+
+**Verified:** Ran `similarity_score` + `best_match` against all 600 cached
+reference skeletons (`data/processed`). Combined `fitness()` (all 3 terms)
+tested on a 10-genome population: scores ranged 0.394–0.519, still
+discriminating. Visual check (`day7_similarity_best_match.png`) confirms
+the fixed metric picks a sensible (not density-biased) match.
+
+**Known limitation (flagged for Day 12, not fixed now):** our genomes (5×5
+Truchet cells) are much simpler than the dataset's intricate fractal
+Kolams, so even the "best" match is still a loose one — this is a genuine
+scale/complexity mismatch, not a bug. Options to revisit at Day 12 tuning:
+increase grid resolution (larger `n`), or accept the current scale and
+focus similarity scoring on smaller reference crops.
+
+**Performance note for Day 11:** per-genome scoring against all 600
+references takes ~0.19–0.35s. For a population of 50 over 100 generations
+that's noticeable (~15–30 min total) — worth adding a `sample_size`
+parameter to `similarity_score` (score against a random subset of
+references per call) if Day 11/12 tuning needs it faster.
+
+**Next (Day 8):** Build the selection operator — tournament or
+roulette-wheel selection, using `Population.chromosomes()` and `fitness()`
+to decide which genomes reproduce.
+
+**Files added:**
+```
+src/
+├── similarity.py
+└── visualize_similarity.py
+outputs/
+└── day7_similarity_best_match.png
+```
+
+---
+
 ## Dataset Received (real Kolam images)
 
 User's real reference dataset arrived: 600 images across 3 fractal Kolam

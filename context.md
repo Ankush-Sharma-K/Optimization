@@ -37,7 +37,7 @@ deployed as a working Streamlit web app.
 | Population init | `population.py` | ✅ Done (Day 4) — **start of Phase 2** |
 | Symmetry fitness | `fitness.py` | ✅ Done (Day 5) |
 | Dataset preprocessing | `dataset.py` | ✅ Done (Day 6) |
-| Similarity fitness | `fitness_similarity.py` | ⏳ Pending (Day 7) |
+| Similarity fitness | `similarity.py` | ✅ Done (Day 7) — **Phase 2 fitness complete** |
 | Selection | `selection.py` | ⏳ Pending (Day 8) |
 | Crossover | `crossover.py` | ⏳ Pending (Day 9) |
 | Mutation | `mutation.py` | ⏳ Pending (Day 10) |
@@ -132,7 +132,7 @@ sanity-check scripts). Reuses `render_genome()` from `renderer.py` directly
 |---|---|---|
 | `symmetry_score(genome)` | function | returns `float` in `[0, 1]` — averages horizontal-reflection, vertical-reflection, and 180°-rotation match fractions |
 | `loop_closure_score(genome)` | function | returns `float` in `[0, 1]` — fraction of curve (by arc count) in fully closed-loop graph components; **note: 1.0 is structurally unreachable**, this is a comparative score only |
-| `fitness(genome, symmetry_weight=0.5, loop_weight=0.5)` | function | **the main scoring entry point** — weighted sum of the two scores above. This is what Phase 3's `select()` (Day 8) should call. Expected to gain a third `similarity_weight` term once Day 7 is built — don't hardcode a 2-term signature elsewhere. |
+| `fitness(genome, reference_transforms=None, symmetry_weight=1/3, loop_weight=1/3, similarity_weight=1/3)` | function | **the main scoring entry point** — weighted sum of symmetry, loop-closure, and (if `reference_transforms` given) similarity. Falls back to the Day 5 two-term score (weights renormalized) when `reference_transforms` is `None` — this is what Phase 3's `select()` (Day 8) should call, always passing the precomputed `reference_transforms` from `similarity.precompute_reference_transforms()`. |
 | `_flipped(t)` | function (internal) | `ARC_A ↔ ARC_B` |
 | `_mid(p, q)` / `_key(p)` | functions (internal) | geometry helpers for the loop-closure graph |
 | `_edge_midpoint_graph(genome)` | function (internal) | builds `{midpoint: [connected midpoints]}` adjacency map from every cell's arcs |
@@ -142,6 +142,23 @@ sanity-check scripts). Reuses `render_genome()` from `renderer.py` directly
 No new module-level names beyond `OUTPUT_DIR`. Reuses `Population`,
 `fitness()`, `symmetry_score()`, `loop_closure_score()`, and
 `render_genome()` directly.
+
+### `src/similarity.py`
+
+| Name | Kind | Signature / Notes |
+|---|---|---|
+| `ReferenceTransforms` | type alias | `List[Tuple[str, np.ndarray, np.ndarray]]` — `(name, skeleton, distance_transform)` triples |
+| `genome_to_skeleton(genome, size=IMAGE_SIZE)` | function | renders a genome in-memory (no disk I/O) and preprocesses it via `dataset.preprocess_image` |
+| `precompute_reference_transforms(dataset)` | function | precomputes distance transforms for every reference skeleton — **call once per GA run**, never per-genome (this is the ~8.5s → ~0.35s optimization) |
+| `_chamfer_distance(genome_skeleton, genome_dt, ref_skeleton, ref_dt)` | function (internal) | returns `max(d_ab, d_ba)` — **not the average**; see Day 7 bug-fix note in PROGRESS.md re: dense-reference bias |
+| `similarity_score(genome, reference_transforms, size=IMAGE_SIZE, scale=20.0)` | function | best-match similarity in `[0, 1]`, via `exp(-distance / scale)`. `scale` is a starting value, expected to be retuned at Day 12. |
+| `best_match(genome, reference_transforms, size=IMAGE_SIZE)` | function | like `similarity_score` but also returns which reference matched — reserved for the "closest real Kolam" display in the app (Day 13) |
+
+### `src/visualize_similarity.py` (sanity-check script, not core pipeline)
+
+No new reusable names. Reuses `render_genome`, `load_processed_dataset`,
+`load_image_grayscale`, `precompute_reference_transforms`,
+`similarity_score`, `best_match` directly.
 
 ### `src/dataset.py`
 
@@ -189,9 +206,19 @@ No new reusable names — imports `load_image_grayscale`, `preprocess_image`,
 
 ## 5. Currently Pending / Next Step
 
-**Day 7 — Similarity Fitness.** Compare a rendered genome's
-preprocessed skeleton (via `renderer.render_genome()` + `dataset.preprocess_image()`)
-against the reference dataset's skeletons (from `dataset.load_dataset()`),
-and fold the result into `fitness()` in `fitness.py` as a third weighted
-term (`similarity_weight`). Reserved name: `similarity_score(genome, dataset_skeletons)`
-— exact API to be confirmed and added to this registry once written.
+**Day 8 — Selection.** Build the selection operator (tournament or
+roulette-wheel) using `Population.chromosomes()` and `fitness()` (with
+precomputed `reference_transforms`) to decide which genomes reproduce.
+Will likely live in `selection.py`, probably with a function like
+`select(population, fitnesses, n) -> List[chromosome]` — exact API to be
+confirmed and added to this registry once written.
+
+**Known limitation to revisit at Day 12:** our genomes (5×5 Truchet cells)
+are much simpler than the dataset's intricate fractal Kolams, so even the
+best similarity match is a loose one — a genuine scale/complexity mismatch,
+not a bug. Consider increasing grid resolution (`PulliGrid(n=...)`) at
+tuning time.
+
+**Performance note for Day 11:** per-genome similarity scoring against all
+600 references takes ~0.2–0.35s — consider adding a `sample_size` param to
+`similarity_score()` if full GA runs need to be faster.

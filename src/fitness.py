@@ -135,13 +135,29 @@ def loop_closure_score(genome: KolamGenome) -> float:
 
 # -- Combined fitness -----------------------------------------------------
 
-def fitness(genome: KolamGenome, symmetry_weight: float = 0.5,
-            loop_weight: float = 0.5) -> float:
-    """Weighted combination of the two scores above. Weights are a starting
-    point -- expect to retune these once dataset-similarity scoring (Day 7)
-    is added alongside them."""
-    return (symmetry_weight * symmetry_score(genome)
-            + loop_weight * loop_closure_score(genome))
+def fitness(genome: KolamGenome, reference_transforms=None,
+            symmetry_weight: float = 1 / 3, loop_weight: float = 1 / 3,
+            similarity_weight: float = 1 / 3) -> float:
+    """Weighted combination of symmetry, loop-closure, and (if a dataset is
+    supplied) dataset-similarity.
+
+    reference_transforms: output of similarity.precompute_reference_transforms(),
+    computed once per GA run. If None, falls back to the Day 5 two-term
+    score (symmetry + loop-closure only, weights renormalized) -- this
+    keeps every earlier test/script in this project (Days 4-5) working
+    unchanged without a dataset.
+    """
+    s = symmetry_score(genome)
+    l = loop_closure_score(genome)
+
+    if reference_transforms is None:
+        total_weight = symmetry_weight + loop_weight
+        return (symmetry_weight * s + loop_weight * l) / total_weight
+
+    from similarity import similarity_score  # local import: keeps fitness.py
+    # usable without matplotlib/scipy/renderer when no dataset is used
+    sim = similarity_score(genome, reference_transforms)
+    return symmetry_weight * s + loop_weight * l + similarity_weight * sim
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
-# kolamNet — Days 1–6 Summary
+# kolamNet — Days 1–7 Summary
 
 **Phase:** 1 — Representation & Rendering (complete) → Phase 2 — Population & Fitness (in progress)
-**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5) + Dataset preprocessing (Day 6)
+**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5) + Dataset preprocessing (Day 6) + Similarity fitness (Day 7)
 
 ---
 
@@ -428,6 +428,99 @@ same fixed set of reference skeletons — no repeated preprocessing needed.
 
 ---
 
+## Day 7 — Similarity Fitness (Dataset-Based)
+
+### Conceptual Overview
+
+Days 1–5 gave genomes structural quality scores (symmetry, loop closure),
+but neither knows what a *real* Kolam actually looks like. Day 7 closes
+that gap: render the genome, preprocess it through the exact same
+resize→threshold→skeletonize pipeline the real dataset went through
+(Day 6), then compare the two skeletons directly.
+
+Because a genome's skeleton and a reference skeleton will essentially
+never land on identical pixels — even for genuinely similar shapes — plain
+pixel overlap doesn't work. Instead, **Chamfer distance** is used: for
+every curve pixel in one image, find the distance to the nearest curve
+pixel in the other, and average that in both directions. This tolerates
+small position/shape differences while still meaningfully penalizing real
+dissimilarity. The **best** (nearest) match across the whole dataset is
+used, not the average distance to all of them — the goal is resembling at
+least one real design well, not looking like a blurry average of all 600.
+
+### Logical Design
+
+- Reference images never change during a GA run, only the genome side
+  does — so `precompute_reference_transforms()` computes each reference's
+  distance transform exactly once, up front, rather than recomputing it for
+  every genome. This single change took per-genome scoring from ~8.5s down
+  to ~0.35s against all 600 references — critical since Day 11's GA loop
+  will call this every generation, for every genome.
+- `genome_to_skeleton()` renders entirely in-memory (no disk I/O), since
+  it will also be called constantly once evolution starts.
+- `fitness()` was extended rather than replaced: it takes an optional
+  `reference_transforms` argument and falls back to the exact Day 5
+  two-term behavior when it's not supplied. This was a deliberate
+  design choice from Day 5 (flagged in `context.md` at the time) so no
+  earlier script breaks.
+
+### What Was Built
+
+**`src/similarity.py`**
+- `genome_to_skeleton(genome, size)` — render + preprocess a genome
+- `precompute_reference_transforms(dataset)` — one-time reference-side setup
+- `_chamfer_distance(...)` — symmetric Chamfer distance between two skeletons
+- `similarity_score(genome, reference_transforms)` — best-match score in `[0, 1]`
+- `best_match(genome, reference_transforms)` — score + which reference matched
+
+**`src/visualize_similarity.py`** — renders a genome next to its
+best-matching real Kolam image.
+
+**`fitness.py` updated** — `fitness()` now combines all three scores when
+a dataset is supplied.
+
+### A Real Bug Found and Fixed
+
+The first version of `_chamfer_distance` averaged both directions
+(`(d_ab + d_ba) / 2`). Testing surfaced a genuine flaw: a very *dense*
+reference image (a fractal covering ~20% of the canvas) won "best match"
+against a test genome purely because genome pixels are trivially close to
+*some* pixel in such a dense reference (`d_ab` collapses to near-zero for
+almost any query) — even though the harder reverse direction (`d_ba`:
+reference pixels needing to be near the far sparser genome curve) was
+actually *worse* (7.70) than a genuinely sparser, more comparable
+reference's `d_ba` (6.32). The average let the easy direction mask the
+hard one. Fixed by switching to `max(d_ab, d_ba)`, which requires *both*
+directions to be genuinely close before a match scores well. Re-verified:
+the best match is now a comparably-scaled reference rather than whichever
+image happens to be densest.
+
+### Verified
+
+Ran the full pipeline against all 600 cached reference skeletons.
+Per-genome scoring: ~0.2–0.35s. Combined `fitness()` (all 3 terms) tested
+on a 10-genome population scored 0.394–0.519 — still discriminating.
+Confirmed the no-dataset fallback still returns the exact Day 5 behavior
+unchanged (0.300 for a genome that scored 0.300 before Day 7 existed).
+
+### Known Limitation (flagged, not fixed, for Day 12)
+
+Our genomes (5×5 Truchet cells) are structurally much simpler than the
+dataset's intricate fractal Kolams — even the *best* match is a loose one.
+This is a genuine scale/complexity mismatch between what the GA currently
+generates and what the reference dataset contains, not a bug in the
+metric itself. Worth revisiting at Day 12 tuning — most likely by
+increasing the grid resolution (larger `n` in `PulliGrid`).
+
+### Why This Matters for Later Phases
+
+`fitness()` is now feature-complete for Phase 2 — Day 8's selection
+operator can call it directly with precomputed `reference_transforms` and
+get a single ranking number per genome, combining structural quality and
+real-world resemblance.
+
+---
+
 ## Files Produced So Far
 
 ```
@@ -447,21 +540,27 @@ OT Project/
 │   ├── fitness.py
 │   ├── visualize_fitness.py
 │   ├── dataset.py
-│   └── visualize_dataset.py
-├── data/       (empty — put your real reference Kolam images here)
+│   ├── visualize_dataset.py
+│   ├── similarity.py
+│   └── visualize_similarity.py
+├── data/
+│   ├── raw/kolam19/, kolam29/, kolam109/   (600 real reference images)
+│   └── processed/                          (cached preprocessed skeletons)
 └── outputs/
     ├── day1_grid_sanity_check.png
     ├── day2_genome_sanity_check.png
     ├── day3_render_comparison.png
     ├── day4_population_preview.png
     ├── day5_fitness_best_vs_worst.png
-    └── day6_preprocessing_stages.png
+    ├── day6_preprocessing_stages.png
+    ├── day6_real_dataset_test.png
+    └── day7_similarity_best_match.png
 ```
 
 ---
 
-## Next Up: Day 7
+## Next Up: Day 8
 
-Build the actual similarity metric — compare a rendered genome's
-preprocessed skeleton against the reference dataset's skeletons, and fold
-the result into `fitness()` as a third weighted term.
+Build the selection operator (tournament or roulette-wheel selection),
+using `Population.chromosomes()` and the now-complete `fitness()` to decide
+which genomes reproduce.
