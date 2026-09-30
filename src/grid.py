@@ -1,22 +1,3 @@
-"""
-kolamNet — Pulli Grid Representation
-=====================================
-A Kolam is drawn around a grid of dots ("pulli"). Most traditional Kolams
-use a square or diamond arrangement of dots, and the curve weaves around
-them following symmetry rules (4-fold, 8-fold rotational, or reflective).
-
-This module defines the PulliGrid: the scaffold that every genome (in later
-phases) will be drawn on top of. Getting this right first matters because:
-  - the genome's "genes" will reference grid coordinates / cell indices
-  - symmetry-based fitness scoring depends on knowing the grid's symmetry
-    axes ahead of time
-  - the renderer needs real (x, y) pixel positions to draw on
-
-Supported grid types (v1):
-  - "square"  : standard square lattice of dots, size n x n
-  - "diamond" : the classic rhombus/diamond pulli arrangement used in many
-                South Indian Kolams (rows grow then shrink: 1,2,...,n,...,2,1)
-"""
 
 from dataclasses import dataclass, field
 from typing import List, Tuple
