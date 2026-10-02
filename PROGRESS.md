@@ -13,7 +13,7 @@
 | 3 — Evolution Engine | 8–11 | Selection, crossover, mutation, main GA loop |
 | 4 — App & Deployment | 12–15 | Experiments/tuning, Streamlit UI, deployment, polish |
 
-**Status: Phase 3 started — Day 8 of 15 complete.**
+**Status: Phase 3 in progress — Day 9 of 15 complete.**
 
 ---
 
@@ -569,4 +569,64 @@ src/
 └── visualize_selection.py
 outputs/
 └── day8_selection_pressure.png   (generated when you run the script)
+```
+
+---
+
+## Day 9 — Crossover Operators
+
+**Goal:** Combine two selected parent chromosomes into children so good
+traits can be recombined.
+
+**Concept:** Each gene is one tile orientation at one grid cell, so *any*
+mix of parent genes is still a valid, renderable genome — crossover needs
+no repair step. Four operators were built behind one `method=` switch:
+- **single_point** — swap the tails after one cut (top band / bottom band
+  in row-major order)
+- **two_point** — swap the segment between two cuts
+- **uniform** — swap each gene independently
+- **block** (default) — swap a random rectangular patch of the 2D tile
+  grid, reshaping the flat chromosome using its square side length
+
+**What was built:**
+- `src/crossover.py` — `crossover()` (main entry point; applies
+  `crossover_rate`, default 0.9, otherwise returns copies),
+  `crossover_pairs()` (pairs up a parent pool from `select()`, for the
+  Day 11 loop), the four operators, `side_length()`, constants
+  `CROSSOVER_RATE`, `CROSSOVER_METHODS`.
+- `src/visualize_crossover.py` — renders parents + both children for every
+  method, for a visual check.
+
+**Measured, on a 5×5 cell grid (all-0 parent × all-1 parent, 3000 trials):**
+every operator conserves genes (child1 + child2 reproduce the parents'
+genes at each position). Mean "seams" (neighbouring cells that came from
+different parents) were: single_point 4.98, block 6.68, two_point 8.61,
+uniform 20.0. So uniform is by far the most disruptive to spatial
+structure, which matters because loops form where neighbouring tiles
+match. Block is *not* lower-disruption than single-point — its advantage
+is that it can transplant a compact patch from anywhere (interior or
+corner) as one unit, whereas row-major cuts only move whole bands and
+always keep the first genes with parent 1. Whether that helps fitness is
+untested, so the default is a reasoned choice and the method comparison is
+a **Day 12 experiment**.
+
+**Design choices:** children are always new lists (parents never
+modified); length mismatch, unknown method, and non-square length without
+`shape=` raise `ValueError`; `block_crossover` accepts `shape=(rows, cols)`
+for future non-square genomes.
+
+**Verified:** `crossover.py` tested standalone (gene conservation, rate 0
+→ copies, parents untouched, odd-length pairing, error cases).
+`visualize_crossover.py` has not been run against your real modules yet.
+
+**Next (Day 10):** Mutation — flip individual tile genes with a small
+per-gene probability.
+
+**Files added:**
+```
+src/
+├── crossover.py
+└── visualize_crossover.py
+outputs/
+└── day9_crossover_comparison.png   (generated when you run the script)
 ```

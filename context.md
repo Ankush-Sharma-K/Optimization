@@ -39,7 +39,7 @@ deployed as a working Streamlit web app.
 | Dataset preprocessing | `dataset.py` | ✅ Done (Day 6) |
 | Similarity fitness | `similarity.py` | ✅ Done (Day 7) — **Phase 2 fitness complete** |
 | Selection | `selection.py` | ✅ Done (Day 8) — **start of Phase 3** |
-| Crossover | `crossover.py` | ⏳ Pending (Day 9) |
+| Crossover | `crossover.py` | ✅ Done (Day 9) |
 | Mutation | `mutation.py` | ⏳ Pending (Day 10) |
 | GA main loop | `ga.py` | ⏳ Pending (Day 11) |
 | Experiments/tuning | — | ⏳ Pending (Day 12) |
@@ -192,6 +192,23 @@ No new reusable names — imports `load_image_grayscale`, `preprocess_image`,
 
 No new reusable names beyond `OUTPUT_DIR` / `PROCESSED_DIR` (path pattern as other scripts).
 
+### `src/crossover.py`
+
+| Name | Kind | Signature / Notes |
+|---|---|---|
+| `Chromosome` | type alias | `List[int]` |
+| `CROSSOVER_RATE` | module constant | `= 0.9` — default probability a pair is recombined |
+| `CROSSOVER_METHODS` | module constant | `("single_point", "two_point", "uniform", "block")` |
+| `crossover(parent1, parent2, method="block", crossover_rate=CROSSOVER_RATE, rng=None, **kwargs)` | function | **the main crossover entry point.** Two parent chromosomes → `(child1, child2)`, new lists. With prob. `1 - crossover_rate` returns plain copies. `kwargs` go to the operator (e.g. `shape=` for block) |
+| `crossover_pairs(parents, method, crossover_rate, rng, **kwargs)` | function | pairs `parents` consecutively (0&1, 2&3…), returns children in order; same length as input (odd last parent copied). Feed it `selection.select()` output |
+| `single_point_crossover` / `two_point_crossover` / `uniform_crossover(p1, p2, rng, swap_prob=0.5)` / `block_crossover(p1, p2, rng, shape=None)` | functions | the four operators; `block` swaps a random rectangle of the 2D tile grid, shape inferred as square from length |
+| `side_length(chromosome)` | function | cell-grid side of a square genome (`grid.n - 1`); raises if length isn't a perfect square |
+| `_check(p1, p2)` / `_OPERATORS` | internal | length validation / method-name → function map |
+
+### `src/visualize_crossover.py` (sanity-check script, not core pipeline)
+
+No new reusable names beyond `OUTPUT_DIR`. Defines a tiny private helper `_genome(grid, chromosome)`.
+
 ---
 
 ## 4. Naming Conventions (keep consistent going forward)
@@ -212,8 +229,8 @@ No new reusable names beyond `OUTPUT_DIR` / `PROCESSED_DIR` (path pattern as oth
   - `fitness_similarity_score()` — planned dataset-similarity scoring
     function (Day 7); will likely be added as a 3rd weighted term inside
     `fitness()` in `fitness.py`, not a separate top-level scorer
-  - `crossover()`, `mutate()` — planned GA operator functions
-    (Days 9–10; `select()` now exists, see registry), each expected to take/return chromosomes (flat lists),
+  - `mutate()` — planned GA operator function (Day 10); `select()` and
+    `crossover()` now exist, see registry, each expected to take/return chromosomes (flat lists),
     consistent with the "chromosome" convention above. **Note:** these
     should consume `Population.chromosomes()`, not `Population.genomes`
     directly.
@@ -222,11 +239,11 @@ No new reusable names beyond `OUTPUT_DIR` / `PROCESSED_DIR` (path pattern as oth
 
 ## 5. Currently Pending / Next Step
 
-**Day 9 — Crossover.** Build `crossover.py`: take two parent chromosomes
-(from `select()`) and return child chromosome(s). Candidates: single-point,
-two-point, or 2D block-swap (swap a rectangular patch of the tile grid —
-needs the genome's `rows`/`cols` to reshape the flat list). Exact API to be
-confirmed and added to this registry once written.
+**Day 10 — Mutation.** Build `mutation.py`: `mutate(chromosome, mutation_rate, rng) -> chromosome`,
+flipping individual tile genes (`0 ↔ 1`) with a small per-gene probability.
+Exact API to be confirmed and added to this registry once written.
+**Day 12 tuning item:** compare crossover methods and `tournament_size` —
+the Day 9 default (`"block"`) is a reasoned choice, not an experimentally proven one.
 
 **Known limitation to revisit at Day 12:** our genomes (5×5 Truchet cells)
 are much simpler than the dataset's intricate fractal Kolams, so even the

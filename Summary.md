@@ -1,7 +1,7 @@
-# kolamNet — Days 1–8 Summary
+# kolamNet — Days 1–9 Summary
 
 **Phase:** 1 — Representation & Rendering (complete) → Phase 2 — Population & Fitness (complete) → Phase 3 — Evolution Engine (in progress)
-**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5) + Dataset preprocessing (Day 6) + Similarity fitness (Day 7) + Selection (Day 8)
+**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5) + Dataset preprocessing (Day 6) + Similarity fitness (Day 7) + Selection (Day 8) + Crossover (Day 9)
 
 ---
 
@@ -560,6 +560,42 @@ local run.
 
 ---
 
+## Day 9 — Crossover
+
+### Conceptual Overview
+
+Selection picks parents; crossover mixes their genes into children so
+useful traits from two different patterns can end up in one. Because every
+gene is just a tile orientation, any mix is a valid Kolam genome — no
+repair step is needed.
+
+### Logical Design
+
+- Four operators behind one `method=` argument: single_point, two_point,
+  uniform, and block (a random rectangle of the 2D tile grid, the default).
+- Works on flat chromosomes only; `block` reshapes using the square side
+  length inferred from the chromosome length.
+- `crossover_rate` (default 0.9) gives some pairs a pass-through, so good
+  parents can survive unchanged.
+- Measured disruption (neighbouring cells from different parents):
+  single_point ~5.0, block ~6.7, two_point ~8.6, uniform ~20. Block's
+  appeal is transplanting a compact patch from anywhere, not lower
+  disruption; the best method is a Day 12 experiment.
+
+### What Was Built
+
+**`src/crossover.py`** — `crossover()`, `crossover_pairs()`, four operators,
+`side_length()`, `CROSSOVER_RATE`, `CROSSOVER_METHODS`.
+**`src/visualize_crossover.py`** — parents + children per method.
+
+### Verified
+
+Standalone tests: gene conservation for every operator, rate 0 returns
+copies, parents never modified, odd-count pairing, error handling. Real
+rendering script pending first local run.
+
+---
+
 ## Files Produced So Far
 
 ```
@@ -583,7 +619,9 @@ OT Project/
 │   ├── similarity.py
 │   ├── visualize_similarity.py
 │   ├── selection.py
-│   └── visualize_selection.py
+│   ├── visualize_selection.py
+│   ├── crossover.py
+│   └── visualize_crossover.py
 ├── data/
 │   ├── raw/kolam19/, kolam29/, kolam109/   (600 real reference images)
 │   └── processed/                          (cached preprocessed skeletons)
@@ -600,6 +638,6 @@ OT Project/
 
 ---
 
-## Next Up: Day 9
+## Next Up: Day 10
 
-Build the crossover operator — combine two selected parent chromosomes into children.
+Build the mutation operator — flip individual tile genes with a small per-gene probability.
