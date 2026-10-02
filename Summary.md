@@ -1,4 +1,4 @@
-# kolamNet — Days 1–11 Summary
+# kolamNet — Days 1–12 Summary
 
 **Phase:** 1 — Representation & Rendering (complete) → Phase 2 — Population & Fitness (complete) → Phase 3 — Evolution Engine (complete)
 **Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5) + Dataset preprocessing (Day 6) + Similarity fitness (Day 7) + Selection (Day 8) + Crossover (Day 9) + Mutation (Day 10) + GA main loop (Day 11)
@@ -670,6 +670,34 @@ work. Real-data run pending first local execution.
 
 ---
 
+## Day 12 — Experiments & Tuning
+
+### Conceptual Overview
+
+The GA runs, but its settings so far are reasoned guesses. Day 12 measures them:
+change one setting at a time, repeat over several random seeds (one run can be
+lucky), and keep a change only if it beats the incumbent by more than the
+seed-to-seed noise.
+
+### Logical Design
+
+- Every run's final best genome is re-scored with the same default `fitness()`
+  against all references, so settings that change the objective (weights, scale)
+  can still be compared fairly.
+- Greedy order: operators first, then rates, then the similarity scale and weights,
+  then grid size (which also tests the Day 7 scale/complexity mismatch).
+- Results are appended to a CSV after every run, so a long run can be stopped and resumed.
+
+### What Was Built
+
+**`src/experiments.py`**; `fitness()` gained a `similarity_scale` argument.
+
+### Verified
+
+Plumbing only, on a synthetic reference set — real-data results are pending your run.
+
+---
+
 ## Files Produced So Far
 
 ```
@@ -699,7 +727,8 @@ OT Project/
 │   ├── mutation.py
 │   ├── visualize_mutation.py
 │   ├── ga.py
-│   └── visualize_ga.py
+│   ├── visualize_ga.py
+│   └── experiments.py
 ├── data/
 │   ├── raw/kolam19/, kolam29/, kolam109/   (600 real reference images)
 │   └── processed/                          (cached preprocessed skeletons)

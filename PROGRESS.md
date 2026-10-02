@@ -759,3 +759,55 @@ src/
 outputs/
 └── day11_ga_run.png   (generated when you run the script)
 ```
+
+---
+
+## Day 12 — Experiments & Tuning (code ready; results pending your first run)
+
+**Goal:** Pick the GA defaults for the app with evidence, not guesses.
+
+**What was built:**
+- `src/experiments.py` — one-factor-at-a-time (greedy) tuning over several seeds.
+  Order: crossover method → mutation method → tournament size → elite count →
+  mutation-rate multiplier → similarity `scale` → fitness weights → grid size.
+  After each experiment the winner is locked into a running base config, so
+  later experiments are tested on top of earlier winners. `population` size is
+  optional (`--only population`), since a bigger population just costs more evaluations.
+- **Common yardstick:** weights/scale change what `run_ga` optimises, so its own
+  `best_fitness` is not comparable across settings. Each run's final best genome
+  is re-scored with the *default* `fitness()` against ALL references; that number
+  ranks settings.
+- **Noise guard:** a challenger replaces the incumbent only if it beats it by more
+  than the combined standard error across seeds; otherwise the default is kept.
+- Results go to `outputs/day12_results.csv` (resumable: re-running skips finished
+  runs), plus `day12_experiments.png`, `day12_scale_analysis.png`,
+  `day12_best_config.json`. `tuned_config()` rebuilds the chosen `(grid_n, GAConfig)`.
+- **One edit to existing code:** `fitness()` gained `similarity_scale=20.0`
+  (passed to `similarity_score(scale=...)`) so scale can be tuned via `fitness_kwargs`.
+  Default behaviour is unchanged.
+
+**Tested:** against the real source files you uploaded, but on a *synthetic*
+reference set (30 skeletons rendered from random 14x14 genomes) with tiny
+settings — this checks the plumbing (runs, CSV resume, winner logic, plots, JSON,
+`tuned_config`), not Kolam quality. No real tuning conclusions exist yet.
+
+**To do on your machine (from `src/`):**
+```
+python experiments.py --quick                   # smoke test
+python experiments.py --workers 3               # full run, resumable
+python experiments.py --scale-only              # only the similarity-scale table
+```
+Rough cost: ~27 settings x 3 seeds = 81 runs; at your Day 11 speed (~70 s for
+30x30) that is ~95 min serial, roughly 1/workers of that in parallel.
+
+**Next:** paste back the printed tables (or `day12_results.csv`) so conclusions can
+be recorded here; then Day 13 (Streamlit app) using `tuned_config()`.
+
+**Files added:**
+```
+src/
+└── experiments.py
+outputs/
+├── day12_results.csv / day12_experiments.png / day12_scale_analysis.png
+└── day12_best_config.json            (generated when you run the script)
+```

@@ -137,7 +137,8 @@ def loop_closure_score(genome: KolamGenome) -> float:
 
 def fitness(genome: KolamGenome, reference_transforms=None,
             symmetry_weight: float = 1 / 3, loop_weight: float = 1 / 3,
-            similarity_weight: float = 1 / 3) -> float:
+            similarity_weight: float = 1 / 3,
+            similarity_scale: float = 20.0) -> float:
     """Weighted combination of symmetry, loop-closure, and (if a dataset is
     supplied) dataset-similarity.
 
@@ -156,7 +157,7 @@ def fitness(genome: KolamGenome, reference_transforms=None,
 
     from similarity import similarity_score  # local import: keeps fitness.py
     # usable without matplotlib/scipy/renderer when no dataset is used
-    sim = similarity_score(genome, reference_transforms)
+    sim = similarity_score(genome, reference_transforms, scale=similarity_scale)
     return symmetry_weight * s + loop_weight * l + similarity_weight * sim
 
 

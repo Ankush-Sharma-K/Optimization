@@ -42,7 +42,7 @@ deployed as a working Streamlit web app.
 | Crossover | `crossover.py` | ✅ Done (Day 9) |
 | Mutation | `mutation.py` | ✅ Done (Day 10) — **all three GA operators complete** |
 | GA main loop | `ga.py` | ✅ Done (Day 11) — **Phase 3 complete** |
-| Experiments/tuning | — | ⏳ Pending (Day 12) |
+| Experiments/tuning | `experiments.py` | 🟡 Code written (Day 12) — real-data results pending first run |
 | Streamlit app | `app.py` | ⏳ Pending (Day 13) |
 | Deployment config | `Dockerfile` / `requirements.txt` | ⏳ Pending (Day 14) |
 | Polish/testing | — | ⏳ Pending (Day 15) |
@@ -132,7 +132,7 @@ sanity-check scripts). Reuses `render_genome()` from `renderer.py` directly
 |---|---|---|
 | `symmetry_score(genome)` | function | returns `float` in `[0, 1]` — averages horizontal-reflection, vertical-reflection, and 180°-rotation match fractions |
 | `loop_closure_score(genome)` | function | returns `float` in `[0, 1]` — fraction of curve (by arc count) in fully closed-loop graph components; **note: 1.0 is structurally unreachable**, this is a comparative score only |
-| `fitness(genome, reference_transforms=None, symmetry_weight=1/3, loop_weight=1/3, similarity_weight=1/3)` | function | **the main scoring entry point** — weighted sum of symmetry, loop-closure, and (if `reference_transforms` given) similarity. Falls back to the Day 5 two-term score (weights renormalized) when `reference_transforms` is `None` — this is what Phase 3's `select()` (Day 8) should call, always passing the precomputed `reference_transforms` from `similarity.precompute_reference_transforms()`. |
+| `fitness(genome, reference_transforms=None, symmetry_weight=1/3, loop_weight=1/3, similarity_weight=1/3, similarity_scale=20.0)` | function | **the main scoring entry point** — weighted sum of symmetry, loop-closure, and (if `reference_transforms` given) similarity. Falls back to the Day 5 two-term score (weights renormalized) when `reference_transforms` is `None` — this is what Phase 3's `select()` (Day 8) should call, always passing the precomputed `reference_transforms` from `similarity.precompute_reference_transforms()`. |
 | `_flipped(t)` | function (internal) | `ARC_A ↔ ARC_B` |
 | `_mid(p, q)` / `_key(p)` | functions (internal) | geometry helpers for the loop-closure graph |
 | `_edge_midpoint_graph(genome)` | function (internal) | builds `{midpoint: [connected midpoints]}` adjacency map from every cell's arcs |
@@ -247,6 +247,24 @@ that to `fitness()`, so `similarity.py` is unchanged.
 
 No new reusable names beyond `OUTPUT_DIR` / `PROCESSED_DIR` (plus private `_HERE`).
 
+### `src/experiments.py`
+
+| Name | Kind | Signature / Notes |
+|---|---|---|
+| `DEFAULT_GRID_N` | module constant | `= 6` (matches `visualize_ga.py`) |
+| `SCALE_CANDIDATES` | module constant | `(5, 10, 20, 40, 80)` similarity-scale values tested |
+| `OPTIONAL` | module constant | experiments skipped unless named in `--only` (`{"population"}`) |
+| `RESULTS_CSV` / `BEST_CONFIG_JSON` | module constants | `outputs/day12_results.csv` / `outputs/day12_best_config.json` |
+| `build_experiments()` | function | `{name: (default_label, [(label, overrides)])}`; override keys = any `GAConfig` field plus `grid_n`, `rate_mult`, `fitness_kwargs` |
+| `build_run(base, overrides, args)` | function | → `(PulliGrid, GAConfig)` |
+| `run_one(experiment, label, overrides, seed, base, args, ref)` | function | one GA run → result row dict; `yardstick` = default `fitness()` on ALL refs |
+| `summarize` / `pick_winner` / `print_table` | functions | per-setting mean ± s.e.; challenger must beat incumbent by > 1 s.e. combined |
+| `scale_analysis(grid, ref, ...)` / `plot_scale` | functions | how well each similarity `scale` separates random genomes |
+| `tuned_config(path=BEST_CONFIG_JSON, **overrides)` | function | → `(grid_n, GAConfig)` from the Day 12 result — **what the Day 13 app should call** |
+| `load_rows` / `append_row` / `_init_worker` / `_worker_task` | functions | resumable CSV store / multiprocessing helpers |
+
+CLI: `--quick`, `--seeds`, `--generations`, `--pop`, `--sample`, `--grid-n`, `--only`, `--fresh`, `--scale-only`, `--workers`.
+
 ---
 
 ## 4. Naming Conventions (keep consistent going forward)
@@ -278,18 +296,11 @@ No new reusable names beyond `OUTPUT_DIR` / `PROCESSED_DIR` (plus private `_HERE
 
 ## 5. Currently Pending / Next Step
 
-**Day 12 — Experiments / tuning.** Use `run_ga()` + `GAConfig` to compare
-settings over several seeds and pick defaults for the app. Candidates:
-crossover method, mutation method/rate, `tournament_size`, `elite_count`,
-`sample_size`, similarity `scale`, fitness weights (`fitness_kwargs`), and
-grid size `PulliGrid(n=...)` (also addresses the scale/complexity mismatch
-below). Probably a new `experiments.py` that returns/saves comparison
-tables and plots — exact API to be confirmed and added to this registry.
+**Day 12 — run `experiments.py` on the real dataset** and record the winning
+settings (from the printed tables / `day12_results.csv`). Then **Day 13 —
+Streamlit app (`app.py`)**: use `tuned_config()` for defaults, `run_ga(...,
+callback=...)` for live progress, `render_genome()` for display, `best_match()`
+for "closest real Kolam".
 
-**Known limitation to revisit at Day 12:** our genomes (5×5 Truchet cells)
-are much simpler than the dataset's intricate fractal Kolams, so even the
-best similarity match is a loose one — a genuine scale/complexity mismatch,
-not a bug. Consider increasing grid resolution (`PulliGrid(n=...)`) at
-tuning time.
-
-**Performance note (resolved in Day 11):** reference-subsampling is available via `GAConfig.sample_size`; actual speed-up still to be measured on real data at Day 12.
+**Known limitation:** our genomes are far simpler than the dataset's fractal Kolams,
+so similarity is a loose match; the `grid` experiment (n = 6/8/10) is the Day 12 probe of this.
