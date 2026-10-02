@@ -41,7 +41,7 @@ deployed as a working Streamlit web app.
 | Selection | `selection.py` | ✅ Done (Day 8) — **start of Phase 3** |
 | Crossover | `crossover.py` | ✅ Done (Day 9) |
 | Mutation | `mutation.py` | ✅ Done (Day 10) — **all three GA operators complete** |
-| GA main loop | `ga.py` | ⏳ Pending (Day 11) |
+| GA main loop | `ga.py` | ✅ Done (Day 11) — **Phase 3 complete** |
 | Experiments/tuning | — | ⏳ Pending (Day 12) |
 | Streamlit app | `app.py` | ⏳ Pending (Day 13) |
 | Deployment config | `Dockerfile` / `requirements.txt` | ⏳ Pending (Day 14) |
@@ -227,6 +227,26 @@ No new reusable names beyond `OUTPUT_DIR`. Defines a tiny private helper `_genom
 
 No new reusable names beyond `OUTPUT_DIR`; private helper `_genome(grid, chromosome)` (same as in `visualize_crossover.py`).
 
+### `src/ga.py`
+
+| Name | Kind | Signature / Notes |
+|---|---|---|
+| `GAConfig` | class (dataclass) | all GA hyper-parameters, with defaults: `population_size=50`, `generations=100`, `elite_count=2`, `selection_method="tournament"`, `tournament_size=3`, `crossover_method="block"`, `crossover_rate=0.9`, `mutation_method="flip"`, `mutation_rate=None` (→ 1/len), `sample_size=None`, `patience=None`, `seed=None`, `fitness_kwargs={}` (weights passed to `fitness()`) |
+| `GAResult` | class (dataclass) | `best_chromosome`, `best_genome` (`KolamGenome`), `best_fitness` (scored vs ALL references), `history`, `population` (final), `config`, `elapsed_s` |
+| `run_ga(grid, reference_transforms=None, config=None, callback=None)` | function | **the main GA entry point.** `callback(stats_dict)` fires after every generation incl. gen 0 — the hook for Streamlit live progress (Day 13) |
+| history entry | dict | `{"generation", "best", "mean", "worst", "diversity", "best_chromosome"}`; `diversity` = unique chromosomes / population size |
+| `_genome_from_chromosome(grid, chromosome)` | function (internal, but imported by `visualize_ga.py`) | builds a `KolamGenome` from a flat chromosome; works whether `from_chromosome` mutates in place or returns a genome |
+| `_reference_subset(reference_transforms, sample_size, rng)` / `_stats(gen, chroms, fit)` | functions (internal) | per-generation reference sampling / history record |
+
+**`sample_size` lives in `GAConfig`, not in `similarity_score()`** (this
+replaces the earlier idea of adding a `sample_size` param to `similarity.py`):
+`ga.py` samples a subset of `reference_transforms` each generation and passes
+that to `fitness()`, so `similarity.py` is unchanged.
+
+### `src/visualize_ga.py` (sanity-check script, not core pipeline)
+
+No new reusable names beyond `OUTPUT_DIR` / `PROCESSED_DIR` (plus private `_HERE`).
+
 ---
 
 ## 4. Naming Conventions (keep consistent going forward)
@@ -258,14 +278,13 @@ No new reusable names beyond `OUTPUT_DIR`; private helper `_genome(grid, chromos
 
 ## 5. Currently Pending / Next Step
 
-**Day 11 — GA main loop (`ga.py`).** Wire everything together: precompute
-`reference_transforms` once → `Population.initialize()` → each generation:
-`evaluate_population()` → keep elites (`elite_indices`) → `select()` →
-`crossover_pairs()` → `mutate_all()` → `Population.replace()`. Track
-best/mean fitness per generation. Exact API to be confirmed and added to
-this registry once written.
-**Day 12 tuning items:** `tournament_size`, crossover method/rate, mutation
-method/rate, elite count, similarity `scale`, grid size.
+**Day 12 — Experiments / tuning.** Use `run_ga()` + `GAConfig` to compare
+settings over several seeds and pick defaults for the app. Candidates:
+crossover method, mutation method/rate, `tournament_size`, `elite_count`,
+`sample_size`, similarity `scale`, fitness weights (`fitness_kwargs`), and
+grid size `PulliGrid(n=...)` (also addresses the scale/complexity mismatch
+below). Probably a new `experiments.py` that returns/saves comparison
+tables and plots — exact API to be confirmed and added to this registry.
 
 **Known limitation to revisit at Day 12:** our genomes (5×5 Truchet cells)
 are much simpler than the dataset's intricate fractal Kolams, so even the
@@ -273,6 +292,4 @@ best similarity match is a loose one — a genuine scale/complexity mismatch,
 not a bug. Consider increasing grid resolution (`PulliGrid(n=...)`) at
 tuning time.
 
-**Performance note for Day 11:** per-genome similarity scoring against all
-600 references takes ~0.2–0.35s — consider adding a `sample_size` param to
-`similarity_score()` if full GA runs need to be faster.
+**Performance note (resolved in Day 11):** reference-subsampling is available via `GAConfig.sample_size`; actual speed-up still to be measured on real data at Day 12.

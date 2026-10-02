@@ -13,7 +13,7 @@
 | 3 — Evolution Engine | 8–11 | Selection, crossover, mutation, main GA loop |
 | 4 — App & Deployment | 12–15 | Experiments/tuning, Streamlit UI, deployment, polish |
 
-**Status: Phase 3 in progress — Day 10 of 15 complete (all GA operators built).**
+**Status: Phase 3 complete — Day 11 of 15 complete (working GA loop).**
 
 ---
 
@@ -666,10 +666,7 @@ average genes changed — flip 0.99, symmetric_flip 0.96, block_flip 2.26
 Symmetry check on a symmetric parent (score 0.76 — below 1.0 because
 centre-row/column cells of an odd-sized grid are their own mirror image):
 `symmetric_flip` kept it at exactly 0.76 across 2000 mutants; plain `flip`
-at rate 0.1 dropped the mean to 0.646. *Caveat:* this symmetry check used
-my own re-implementation of the Day 5 rules from the description, since
-`fitness.py` itself wasn't available — please confirm with your real
-`symmetry_score()`.
+at rate 0.1 dropped the mean to 0.646. *Confirmed on the real code:* running the real `symmetry_score()` on a symmetric parent gave 0.76 before and 0.76 (min and max over 500 `symmetric_flip` mutants) after; plain `flip` averaged 0.6443 → PASS.
 
 **Design choices:** `nearest_point()` (reserved on Day 1 for mutation) is
 not needed — tile flips can't leave the grid. Default method is plain
@@ -692,4 +689,73 @@ src/
 └── visualize_mutation.py
 outputs/
 └── day10_mutation_comparison.png   (generated when you run the script)
+```
+
+---
+
+## Day 11 — GA Main Loop (Phase 3 complete)
+
+**Goal:** Tie population, fitness, selection, crossover and mutation into
+one evolutionary loop.
+
+**Each generation:** score the population → copy the top `elite_count`
+unchanged → `select()` parents → `crossover_pairs()` → `mutate_all()` →
+trim to size → `Population.replace()` → re-score. Elites skip crossover and
+mutation, so the best fitness can't be lost.
+
+**What was built:**
+- `src/ga.py`
+  - `GAConfig` — every hyper-parameter in one dataclass (defaults: pop 50,
+    100 generations, 2 elites, tournament k=3, block crossover @ 0.9,
+    flip mutation @ 1/len, no sampling, no early stop).
+  - `run_ga(grid, reference_transforms=None, config=None, callback=None)` →
+    `GAResult` (`best_chromosome`, `best_genome`, `best_fitness`, `history`,
+    final `population`, `elapsed_s`).
+  - Per-generation `history` records best / mean / worst fitness,
+    `diversity` (unique chromosomes ÷ size, to spot premature convergence)
+    and the generation's best chromosome (so the app can animate evolution).
+  - `callback(stats)` after every generation — hook for Streamlit live
+    progress on Day 13.
+  - `patience` — optional early stop after N generations without a new best.
+- `src/visualize_ga.py` — runs a 30×30 GA on the real cached dataset and
+  plots fitness curves, diversity, and best-of-gen-0 vs final best.
+
+**`sample_size` — a change from what I said on Day 7/10:** I planned to add
+it to `similarity_score()`. Instead it lives in `GAConfig`: each generation
+the loop scores against a fresh random subset of the references, so
+`similarity.py` needs no edits (I didn't have its source in hand). Because
+subsets differ per generation, fitness is comparable only *within* a
+generation, so the final population is re-scored against **all** references
+before the best is picked. With `sample_size=None` scoring is deterministic
+and best fitness is monotone non-decreasing.
+
+**Tested — on stand-in modules, not your real ones.** I didn't have your
+`grid/genome/population/fitness` source, so I tested the loop wiring with
+small stubs built from the documented interfaces (stub fitness = fake
+symmetry + fake loop + fake similarity to 40 random reference chromosomes).
+This checks the *loop*, not real Kolam quality. Results: best 0.673 → 0.782
+and mean 0.539 → 0.716 over 40 generations; best never decreased;
+diversity fell 1.00 → 0.77; same seed reproduces exactly, different seed
+differs; sampling mode, no-reference mode, odd population size, early
+stopping and invalid-config errors all behave; with `elite_count=0` the best
+*does* sometimes drop, confirming elitism is doing its job.
+
+**To do on your machine:** run `python visualize_ga.py` from `src/`. Two
+assumptions to confirm: `KolamGenome(grid)` builds a default tile grid
+(then `from_chromosome` fills it), and `Population.replace()` accepts a list
+of `KolamGenome`. `_genome_from_chromosome` handles `from_chromosome`
+either mutating in place or returning a genome. Please also note the
+runtime printed (30 × 30 with 100 sampled references) — it informs Day 12.
+
+**Phase 3 (Evolution Engine) is complete.**
+
+**Next (Day 12):** experiments and tuning with `run_ga()`.
+
+**Files added:**
+```
+src/
+├── ga.py
+└── visualize_ga.py
+outputs/
+└── day11_ga_run.png   (generated when you run the script)
 ```

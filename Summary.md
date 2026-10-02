@@ -1,7 +1,7 @@
-# kolamNet — Days 1–10 Summary
+# kolamNet — Days 1–11 Summary
 
-**Phase:** 1 — Representation & Rendering (complete) → Phase 2 — Population & Fitness (complete) → Phase 3 — Evolution Engine (in progress)
-**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5) + Dataset preprocessing (Day 6) + Similarity fitness (Day 7) + Selection (Day 8) + Crossover (Day 9) + Mutation (Day 10)
+**Phase:** 1 — Representation & Rendering (complete) → Phase 2 — Population & Fitness (complete) → Phase 3 — Evolution Engine (complete)
+**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5) + Dataset preprocessing (Day 6) + Similarity fitness (Day 7) + Selection (Day 8) + Crossover (Day 9) + Mutation (Day 10) + GA main loop (Day 11)
 
 ---
 
@@ -615,9 +615,7 @@ every mutant is automatically a valid genome.
 - Works on flat chromosomes and returns new lists; inputs are never modified.
 - Measured: flip rate 0.2 changed 5.02 of 25 genes (expected 5);
   symmetric_flip held a symmetric parent's score constant over 2000 mutants
-  while plain flip lowered it (0.76 → mean 0.646). The symmetry check used a
-  re-implementation of the Day 5 rules, to be confirmed against the real
-  `symmetry_score()`.
+  while plain flip lowered it (0.76 → mean 0.646). Confirmed against the real `symmetry_score()`: 0.76 unchanged across 500 `symmetric_flip` mutants (plain flip mean 0.6443).
 
 ### What Was Built
 
@@ -630,6 +628,45 @@ every mutant is automatically a valid genome.
 Standalone tests: rate 0/1 behaviour, input untouched, flip counts,
 rectangle contiguity, symmetry preservation, error handling. Real
 rendering script pending first local run.
+
+---
+
+## Day 11 — GA Main Loop (Phase 3 Complete)
+
+### Conceptual Overview
+
+Days 8–10 built the three evolutionary operators in isolation. Day 11 runs
+them together: each generation the population is scored, the best few
+members are carried over untouched (elitism), parents are selected,
+recombined, mutated, and the result becomes the next generation. Repeating
+this is what makes the patterns improve.
+
+### Logical Design
+
+- All settings live in one `GAConfig` dataclass, so the Streamlit app and
+  the Day 12 experiments just construct a config and call `run_ga()`.
+- Operators work on chromosomes; genomes are rebuilt only when the new
+  generation is handed to `Population.replace()`.
+- Elitism guarantees best fitness never decreases (when scoring is
+  deterministic).
+- `history` records best/mean/worst fitness, diversity (unique
+  chromosomes ÷ size) and each generation's best chromosome; a per-
+  generation `callback` is the hook for live progress in the app.
+- Speed option `sample_size` scores against a random subset of references
+  per generation (implemented in `ga.py`, so `similarity.py` is
+  unchanged); the final population is re-scored on all references.
+
+### What Was Built
+
+**`src/ga.py`** — `GAConfig`, `GAResult`, `run_ga()`.
+**`src/visualize_ga.py`** — fitness curves, diversity plot, gen-0 vs final best.
+
+### Verified
+
+Loop wiring tested with stand-in modules (not the real project code):
+best and mean fitness rose, best never decreased with elitism, seeds
+reproduce, sampling / no-reference / odd-size / early-stop / error cases
+work. Real-data run pending first local execution.
 
 ---
 
@@ -660,7 +697,9 @@ OT Project/
 │   ├── crossover.py
 │   ├── visualize_crossover.py
 │   ├── mutation.py
-│   └── visualize_mutation.py
+│   ├── visualize_mutation.py
+│   ├── ga.py
+│   └── visualize_ga.py
 ├── data/
 │   ├── raw/kolam19/, kolam29/, kolam109/   (600 real reference images)
 │   └── processed/                          (cached preprocessed skeletons)
@@ -677,6 +716,6 @@ OT Project/
 
 ---
 
-## Next Up: Day 11
+## Next Up: Day 12
 
-Build the GA main loop (`ga.py`): evaluate → elitism → select → crossover → mutate → replace, repeated per generation.
+Experiments and tuning with `run_ga()`: operator choices, rates, tournament size, similarity scale, grid size.
