@@ -1,7 +1,7 @@
-# kolamNet — Days 1–7 Summary
+# kolamNet — Days 1–8 Summary
 
-**Phase:** 1 — Representation & Rendering (complete) → Phase 2 — Population & Fitness (in progress)
-**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5) + Dataset preprocessing (Day 6) + Similarity fitness (Day 7)
+**Phase:** 1 — Representation & Rendering (complete) → Phase 2 — Population & Fitness (complete) → Phase 3 — Evolution Engine (in progress)
+**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5) + Dataset preprocessing (Day 6) + Similarity fitness (Day 7) + Selection (Day 8)
 
 ---
 
@@ -521,6 +521,45 @@ real-world resemblance.
 
 ---
 
+## Day 8 — Selection (Start of Phase 3)
+
+### Conceptual Overview
+
+With a complete fitness function, the GA needs a way to turn scores into
+*who reproduces*. Selection picks parents so that fitter chromosomes are
+favoured but weaker ones still have a chance, which keeps the population
+diverse instead of collapsing onto one pattern too early.
+
+### Logical Design
+
+- Works only on chromosomes (flat `List[int]`) plus a parallel list of
+  fitness values — no geometry, as planned in Day 4.
+- Three methods behind one `method=` argument: tournament (default),
+  roulette-wheel, rank.
+- Tournament is the default because our fitness values are bunched
+  (~0.39–0.52): roulette-wheel is nearly random on such a narrow range,
+  while tournament only compares ranks within a small random group and
+  exposes selection pressure as one knob (`tournament_size`).
+- Returns *copies* of the chosen chromosomes so later operators can't
+  modify the parent pool.
+
+### What Was Built
+
+**`src/selection.py`** — `select()`, `select_indices()`, `elite_indices()`,
+`evaluate_population()`, constants `TOURNAMENT_SIZE`, `SELECTION_METHODS`.
+**`src/visualize_selection.py`** — selection-pressure plot + top-3 genomes.
+
+### Verified
+
+Standalone tests on synthetic data: tournament pressure rises with `k`
+(selected-parent mean 0.4613 / 0.4645 / 0.4680 for k = 2 / 3 / 5 vs
+population mean 0.4547), roulette barely beats random (0.4583), seeded runs
+reproduce exactly, edge cases (equal/zero fitness, size-1 population,
+length mismatch) behave correctly. Real-data sanity script pending first
+local run.
+
+---
+
 ## Files Produced So Far
 
 ```
@@ -542,7 +581,9 @@ OT Project/
 │   ├── dataset.py
 │   ├── visualize_dataset.py
 │   ├── similarity.py
-│   └── visualize_similarity.py
+│   ├── visualize_similarity.py
+│   ├── selection.py
+│   └── visualize_selection.py
 ├── data/
 │   ├── raw/kolam19/, kolam29/, kolam109/   (600 real reference images)
 │   └── processed/                          (cached preprocessed skeletons)
@@ -559,8 +600,6 @@ OT Project/
 
 ---
 
-## Next Up: Day 8
+## Next Up: Day 9
 
-Build the selection operator (tournament or roulette-wheel selection),
-using `Population.chromosomes()` and the now-complete `fitness()` to decide
-which genomes reproduce.
+Build the crossover operator — combine two selected parent chromosomes into children.

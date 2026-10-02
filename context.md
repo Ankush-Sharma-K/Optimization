@@ -38,7 +38,7 @@ deployed as a working Streamlit web app.
 | Symmetry fitness | `fitness.py` | ✅ Done (Day 5) |
 | Dataset preprocessing | `dataset.py` | ✅ Done (Day 6) |
 | Similarity fitness | `similarity.py` | ✅ Done (Day 7) — **Phase 2 fitness complete** |
-| Selection | `selection.py` | ⏳ Pending (Day 8) |
+| Selection | `selection.py` | ✅ Done (Day 8) — **start of Phase 3** |
 | Crossover | `crossover.py` | ⏳ Pending (Day 9) |
 | Mutation | `mutation.py` | ⏳ Pending (Day 10) |
 | GA main loop | `ga.py` | ⏳ Pending (Day 11) |
@@ -176,6 +176,22 @@ No new reusable names. Reuses `render_genome`, `load_processed_dataset`,
 No new reusable names — imports `load_image_grayscale`, `preprocess_image`,
 `IMAGE_SIZE` from `dataset.py` directly.
 
+### `src/selection.py`
+
+| Name | Kind | Signature / Notes |
+|---|---|---|
+| `TOURNAMENT_SIZE` | module constant | `= 3` — default tournament size |
+| `SELECTION_METHODS` | module constant | `("tournament", "roulette", "rank")` |
+| `select(population, fitnesses, n, method="tournament", tournament_size=TOURNAMENT_SIZE, rng=None)` | function | **the main selection entry point.** `population` = a `Population` *or* a list of chromosomes; `fitnesses[i]` aligns with member `i`. Returns `n` parent **chromosomes** (copies, sampled with replacement) |
+| `select_indices(fitnesses, n, method, tournament_size, rng)` | function | same, but returns indices — useful for tracking parents |
+| `elite_indices(fitnesses, k)` | function | top-k indices, best first — for elitism in the Day 11 loop |
+| `evaluate_population(population, reference_transforms=None, **fitness_kwargs)` | function | `Population` → `List[float]` via `fitness.fitness()`; lazy-imports `fitness`. **Always pass `reference_transforms`** |
+| `_as_chromosomes`, `_tournament_indices`, `_roulette_indices`, `_rank_indices`, `_weighted_indices` | functions (internal) | method implementations / helpers |
+
+### `src/visualize_selection.py` (sanity-check script, not core pipeline)
+
+No new reusable names beyond `OUTPUT_DIR` / `PROCESSED_DIR` (path pattern as other scripts).
+
 ---
 
 ## 4. Naming Conventions (keep consistent going forward)
@@ -196,8 +212,8 @@ No new reusable names — imports `load_image_grayscale`, `preprocess_image`,
   - `fitness_similarity_score()` — planned dataset-similarity scoring
     function (Day 7); will likely be added as a 3rd weighted term inside
     `fitness()` in `fitness.py`, not a separate top-level scorer
-  - `select()`, `crossover()`, `mutate()` — planned GA operator functions
-    (Days 8–10), each expected to take/return chromosomes (flat lists),
+  - `crossover()`, `mutate()` — planned GA operator functions
+    (Days 9–10; `select()` now exists, see registry), each expected to take/return chromosomes (flat lists),
     consistent with the "chromosome" convention above. **Note:** these
     should consume `Population.chromosomes()`, not `Population.genomes`
     directly.
@@ -206,11 +222,10 @@ No new reusable names — imports `load_image_grayscale`, `preprocess_image`,
 
 ## 5. Currently Pending / Next Step
 
-**Day 8 — Selection.** Build the selection operator (tournament or
-roulette-wheel) using `Population.chromosomes()` and `fitness()` (with
-precomputed `reference_transforms`) to decide which genomes reproduce.
-Will likely live in `selection.py`, probably with a function like
-`select(population, fitnesses, n) -> List[chromosome]` — exact API to be
+**Day 9 — Crossover.** Build `crossover.py`: take two parent chromosomes
+(from `select()`) and return child chromosome(s). Candidates: single-point,
+two-point, or 2D block-swap (swap a rectangular patch of the tile grid —
+needs the genome's `rows`/`cols` to reshape the flat list). Exact API to be
 confirmed and added to this registry once written.
 
 **Known limitation to revisit at Day 12:** our genomes (5×5 Truchet cells)

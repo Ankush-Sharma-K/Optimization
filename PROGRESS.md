@@ -13,7 +13,7 @@
 | 3 — Evolution Engine | 8–11 | Selection, crossover, mutation, main GA loop |
 | 4 — App & Deployment | 12–15 | Experiments/tuning, Streamlit UI, deployment, polish |
 
-**Status: Phase 1, Day 3 of 15 complete — Phase 1 finished.**
+**Status: Phase 3 started — Day 8 of 15 complete.**
 
 ---
 
@@ -509,4 +509,64 @@ startup cost into ~0.2 seconds after the first run.
 ```
 src/
 └── dataset.py   (added save_processed_dataset, load_processed_dataset)
+```
+
+---
+
+## Day 8 — Selection Operator (start of Phase 3)
+
+**Goal:** Decide which genomes get to reproduce, using `fitness()` scores.
+
+**Concept:** Selection is what turns fitness numbers into evolutionary
+pressure: fitter chromosomes get picked as parents more often, but not
+exclusively (weaker ones still occasionally survive, which preserves
+diversity). Three methods were implemented behind one `method=` switch:
+- **Tournament** (default) — draw `k` random contenders, the fittest wins.
+  `k` directly controls selection pressure.
+- **Roulette-wheel** — probability proportional to fitness (shifted so the
+  worst member sits at ~0).
+- **Rank** — probability proportional to rank, so it ignores fitness scale.
+
+**What was built:**
+- `src/selection.py` — `select()` (main entry point, returns parent
+  *chromosomes*, copied), `select_indices()`, `elite_indices()` (for
+  elitism on Day 11), `evaluate_population()` (Population → list of
+  fitness values via `fitness()`), plus module constants
+  `TOURNAMENT_SIZE = 3` and `SELECTION_METHODS`.
+- `src/visualize_selection.py` — sanity script: scores a real population
+  and plots mean parent fitness per method, plus the top-3 genomes.
+
+**Why tournament is the default:** `fitness()` values are bunched in a
+narrow band (~0.39–0.52). Roulette-wheel depends on *absolute* fitness
+differences, so with bunched scores it is nearly random. Tested on a
+50-member synthetic population with a similarly narrow range (pop mean
+0.4547): roulette's selected parents averaged 0.4583, rank 0.4610, while
+tournament gave 0.4613 / 0.4645 / 0.4680 for k = 2 / 3 / 5. Tournament is
+also cheaper and its pressure is a single tunable knob — `tournament_size`
+is a Day 12 tuning candidate.
+
+**Design choices:**
+- Selection takes a `Population` *or* a plain list of chromosomes, and
+  returns copies, so crossover/mutation can never mutate the parent pool.
+- Sampling is with replacement; contenders within one tournament are
+  distinct. A seeded `random.Random` gives reproducible runs.
+- Edge cases handled: all-equal / all-zero fitness falls back to uniform
+  choice; tournament size is clamped to population size; length mismatch
+  between chromosomes and fitnesses raises `ValueError`.
+
+**Verified:** `selection.py` tested standalone on synthetic chromosomes
+(selection pressure ordering, seeded reproducibility, copy-safety, edge
+cases). `visualize_selection.py` still needs a first run on your machine
+against the real 600-image cache.
+
+**Next (Day 9):** Crossover — combine two selected parent chromosomes
+into children (single-point / two-point / 2D block-swap).
+
+**Files added:**
+```
+src/
+├── selection.py
+└── visualize_selection.py
+outputs/
+└── day8_selection_pressure.png   (generated when you run the script)
 ```
