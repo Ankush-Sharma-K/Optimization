@@ -40,7 +40,7 @@ deployed as a working Streamlit web app.
 | Similarity fitness | `similarity.py` | ✅ Done (Day 7) — **Phase 2 fitness complete** |
 | Selection | `selection.py` | ✅ Done (Day 8) — **start of Phase 3** |
 | Crossover | `crossover.py` | ✅ Done (Day 9) |
-| Mutation | `mutation.py` | ⏳ Pending (Day 10) |
+| Mutation | `mutation.py` | ✅ Done (Day 10) — **all three GA operators complete** |
 | GA main loop | `ga.py` | ⏳ Pending (Day 11) |
 | Experiments/tuning | — | ⏳ Pending (Day 12) |
 | Streamlit app | `app.py` | ⏳ Pending (Day 13) |
@@ -209,6 +209,24 @@ No new reusable names beyond `OUTPUT_DIR` / `PROCESSED_DIR` (path pattern as oth
 
 No new reusable names beyond `OUTPUT_DIR`. Defines a tiny private helper `_genome(grid, chromosome)`.
 
+### `src/mutation.py`
+
+| Name | Kind | Signature / Notes |
+|---|---|---|
+| `Chromosome` | type alias | `List[int]` (same alias as in `crossover.py`) |
+| `MUTATION_METHODS` | module constant | `("flip", "block_flip", "symmetric_flip")` |
+| `mutate(chromosome, mutation_rate=None, method="flip", rng=None, **kwargs)` | function | **the main mutation entry point.** Returns a *new* mutated chromosome; input untouched. `mutation_rate=None` → `1/len(chromosome)`. Validates genes ∈ {0,1} and rate ∈ [0,1] |
+| `mutate_all(chromosomes, mutation_rate, method, rng, **kwargs)` | function | mutates every chromosome in a list (e.g. output of `crossover_pairs`) |
+| `default_mutation_rate(chromosome)` | function | `1 / len(chromosome)` |
+| `flip_mutation(chromosome, rate, rng)` | function | per-gene independent flip |
+| `block_flip_mutation(chromosome, rate, rng, shape=None, max_side=2)` | function | with prob. `rate * len` flips one random ≤`max_side`×`max_side` rectangle |
+| `symmetric_flip_mutation(chromosome, rate, rng, shape=None)` | function | flips whole 4-cell mirror/rotation orbits together → `symmetry_score` exactly preserved |
+| `_shape(chromosome, shape)` / `_OPERATORS` | internal | grid-shape inference / method map |
+
+### `src/visualize_mutation.py` (sanity-check script, not core pipeline)
+
+No new reusable names beyond `OUTPUT_DIR`; private helper `_genome(grid, chromosome)` (same as in `visualize_crossover.py`).
+
 ---
 
 ## 4. Naming Conventions (keep consistent going forward)
@@ -229,8 +247,9 @@ No new reusable names beyond `OUTPUT_DIR`. Defines a tiny private helper `_genom
   - `fitness_similarity_score()` — planned dataset-similarity scoring
     function (Day 7); will likely be added as a 3rd weighted term inside
     `fitness()` in `fitness.py`, not a separate top-level scorer
-  - `mutate()` — planned GA operator function (Day 10); `select()` and
-    `crossover()` now exist, see registry, each expected to take/return chromosomes (flat lists),
+  - `select()`, `crossover()` and `mutate()` all exist now — see registry.
+    (`PulliGrid.nearest_point()` was reserved for mutation but is not needed:
+    genes are tile flips, so mutation never leaves the grid.), each expected to take/return chromosomes (flat lists),
     consistent with the "chromosome" convention above. **Note:** these
     should consume `Population.chromosomes()`, not `Population.genomes`
     directly.
@@ -239,11 +258,14 @@ No new reusable names beyond `OUTPUT_DIR`. Defines a tiny private helper `_genom
 
 ## 5. Currently Pending / Next Step
 
-**Day 10 — Mutation.** Build `mutation.py`: `mutate(chromosome, mutation_rate, rng) -> chromosome`,
-flipping individual tile genes (`0 ↔ 1`) with a small per-gene probability.
-Exact API to be confirmed and added to this registry once written.
-**Day 12 tuning item:** compare crossover methods and `tournament_size` —
-the Day 9 default (`"block"`) is a reasoned choice, not an experimentally proven one.
+**Day 11 — GA main loop (`ga.py`).** Wire everything together: precompute
+`reference_transforms` once → `Population.initialize()` → each generation:
+`evaluate_population()` → keep elites (`elite_indices`) → `select()` →
+`crossover_pairs()` → `mutate_all()` → `Population.replace()`. Track
+best/mean fitness per generation. Exact API to be confirmed and added to
+this registry once written.
+**Day 12 tuning items:** `tournament_size`, crossover method/rate, mutation
+method/rate, elite count, similarity `scale`, grid size.
 
 **Known limitation to revisit at Day 12:** our genomes (5×5 Truchet cells)
 are much simpler than the dataset's intricate fractal Kolams, so even the

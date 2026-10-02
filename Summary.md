@@ -1,7 +1,7 @@
-# kolamNet — Days 1–9 Summary
+# kolamNet — Days 1–10 Summary
 
 **Phase:** 1 — Representation & Rendering (complete) → Phase 2 — Population & Fitness (complete) → Phase 3 — Evolution Engine (in progress)
-**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5) + Dataset preprocessing (Day 6) + Similarity fitness (Day 7) + Selection (Day 8) + Crossover (Day 9)
+**Covers:** Pulli (dot) grid representation (Day 1) + Genome encoding (Day 2) + Arc renderer (Day 3) + Population initializer (Day 4) + Fitness v1: symmetry & loop-closure (Day 5) + Dataset preprocessing (Day 6) + Similarity fitness (Day 7) + Selection (Day 8) + Crossover (Day 9) + Mutation (Day 10)
 
 ---
 
@@ -596,6 +596,43 @@ rendering script pending first local run.
 
 ---
 
+## Day 10 — Mutation
+
+### Conceptual Overview
+
+Selection and crossover only recombine what the population already
+contains. Mutation injects new variation by randomly flipping a few tile
+genes, letting the GA discover patterns no parent had. With binary genes,
+every mutant is automatically a valid genome.
+
+### Logical Design
+
+- Three operators behind `method=`: `flip` (default, per-gene), `block_flip`
+  (one ≤2×2 patch), `symmetric_flip` (flips a 4-cell mirror/rotation orbit
+  together, preserving `symmetry_score` exactly).
+- Default rate is `1/len(chromosome)` (~1 gene per chromosome) — a standard
+  starting point, tuned on Day 12.
+- Works on flat chromosomes and returns new lists; inputs are never modified.
+- Measured: flip rate 0.2 changed 5.02 of 25 genes (expected 5);
+  symmetric_flip held a symmetric parent's score constant over 2000 mutants
+  while plain flip lowered it (0.76 → mean 0.646). The symmetry check used a
+  re-implementation of the Day 5 rules, to be confirmed against the real
+  `symmetry_score()`.
+
+### What Was Built
+
+**`src/mutation.py`** — `mutate()`, `mutate_all()`, three operators,
+`default_mutation_rate()`, `MUTATION_METHODS`.
+**`src/visualize_mutation.py`** — parent vs mutants at several rates and per method.
+
+### Verified
+
+Standalone tests: rate 0/1 behaviour, input untouched, flip counts,
+rectangle contiguity, symmetry preservation, error handling. Real
+rendering script pending first local run.
+
+---
+
 ## Files Produced So Far
 
 ```
@@ -621,7 +658,9 @@ OT Project/
 │   ├── selection.py
 │   ├── visualize_selection.py
 │   ├── crossover.py
-│   └── visualize_crossover.py
+│   ├── visualize_crossover.py
+│   ├── mutation.py
+│   └── visualize_mutation.py
 ├── data/
 │   ├── raw/kolam19/, kolam29/, kolam109/   (600 real reference images)
 │   └── processed/                          (cached preprocessed skeletons)
@@ -638,6 +677,6 @@ OT Project/
 
 ---
 
-## Next Up: Day 10
+## Next Up: Day 11
 
-Build the mutation operator — flip individual tile genes with a small per-gene probability.
+Build the GA main loop (`ga.py`): evaluate → elitism → select → crossover → mutate → replace, repeated per generation.

@@ -13,7 +13,7 @@
 | 3 — Evolution Engine | 8–11 | Selection, crossover, mutation, main GA loop |
 | 4 — App & Deployment | 12–15 | Experiments/tuning, Streamlit UI, deployment, polish |
 
-**Status: Phase 3 in progress — Day 9 of 15 complete.**
+**Status: Phase 3 in progress — Day 10 of 15 complete (all GA operators built).**
 
 ---
 
@@ -629,4 +629,67 @@ src/
 └── visualize_crossover.py
 outputs/
 └── day9_crossover_comparison.png   (generated when you run the script)
+```
+
+---
+
+## Day 10 — Mutation Operators
+
+**Goal:** Add small random changes to children so evolution can discover
+patterns neither parent contained.
+
+**Concept:** Each gene is a binary tile orientation, so mutating a gene
+means flipping it (0 ↔ 1) — every result is still a valid, renderable
+genome. Three operators behind one `method=` switch:
+- **flip** (default) — each gene flips independently with probability `rate`
+- **block_flip** — with probability `rate × length`, flip one random
+  rectangle of up to 2×2 cells: a coherent local change (e.g. re-routing a
+  loop) that single flips rarely make
+- **symmetric_flip** — flips whole 4-cell mirror/rotation orbits together.
+  Mirrors swap ARC_A↔ARC_B and 180° rotation keeps identity, so each
+  relation between two cells is "equal" or "opposite"; flipping both cells
+  keeps it intact, so `symmetry_score` is preserved exactly. Plain flips
+  tend to break symmetry that selection has built up.
+
+**What was built:**
+- `src/mutation.py` — `mutate()` (main entry point; default rate
+  `1/len(chromosome)`, i.e. ~1 flipped gene per chromosome), `mutate_all()`,
+  the three operators, `default_mutation_rate()`, `MUTATION_METHODS`.
+  Returns new lists; validates genes ∈ {0,1} and rate ∈ [0,1].
+- `src/visualize_mutation.py` — parent vs mutants at increasing rates, and
+  one mutant per method.
+
+**Measured (25-gene chromosome, 4000 trials each):** at the default rate,
+average genes changed — flip 0.99, symmetric_flip 0.96, block_flip 2.26
+(each event flips 1–4 cells). flip at rate 0.2 changed 5.02 genes (expected
+5). `block_flip` changes were always a contiguous rectangle ≤ 2×2.
+Symmetry check on a symmetric parent (score 0.76 — below 1.0 because
+centre-row/column cells of an odd-sized grid are their own mirror image):
+`symmetric_flip` kept it at exactly 0.76 across 2000 mutants; plain `flip`
+at rate 0.1 dropped the mean to 0.646. *Caveat:* this symmetry check used
+my own re-implementation of the Day 5 rules from the description, since
+`fitness.py` itself wasn't available — please confirm with your real
+`symmetry_score()`.
+
+**Design choices:** `nearest_point()` (reserved on Day 1 for mutation) is
+not needed — tile flips can't leave the grid. Default method is plain
+`flip`; whether `symmetric_flip` or `block_flip` helps is a Day 12
+experiment, not a conclusion.
+
+**Verified:** `mutation.py` tested standalone (rate 0 → copy, rate 1 → all
+flipped, input untouched, expected flip counts, rectangle contiguity,
+symmetry preservation, error cases). `visualize_mutation.py` not yet run
+against your real modules.
+
+**Phase 3 operators complete:** `select()`, `crossover()`, `mutate()`.
+
+**Next (Day 11):** GA main loop (`ga.py`) tying everything together.
+
+**Files added:**
+```
+src/
+├── mutation.py
+└── visualize_mutation.py
+outputs/
+└── day10_mutation_comparison.png   (generated when you run the script)
 ```
