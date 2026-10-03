@@ -1,0 +1,21 @@
+{
+  "overrides": {
+    "crossover_method": "block",
+    "mutation_method": "flip",
+    "tournament_size": 3,
+    "elite_count": 2,
+    "rate_mult": 1,
+    "fitness_kwargs": {
+      "similarity_scale": 20.0,
+      "symmetry_weight": 0.3333333333333333,
+      "loop_weight": 0.3333333333333333,
+      "similarity_weight": 0.3333333333333333
+    },
+    "grid_n": 10
+  },
+  "population_size": 30,
+  "generations": 30,
+  "sample_size": 50,
+  "grid_n": 10,
+  "note": "Chosen greedily one factor at a time; see day12_results.csv"
+}

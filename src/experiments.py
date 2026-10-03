@@ -124,14 +124,56 @@ def _worker_task(task):
     return run_one(experiment, label, overrides, seed, base, args, _WORKER_REF)
 
 
+class Progress:
+    """Run-level progress bar with elapsed time and ETA (wall clock, so it is
+    correct with --workers too). Runs already saved in the CSV count as done
+    but are not used to estimate speed."""
+
+    def __init__(self, total, width=24):
+        self.total, self.width = total, width
+        self.done = self.ran = 0
+        self.t0 = time.time()
+
+    @staticmethod
+    def _fmt(sec):
+        sec = int(max(sec, 0))
+        h, r = divmod(sec, 3600)
+        m, s = divmod(r, 60)
+        return f"{h}h{m:02d}m" if h else f"{m}m{s:02d}s"
+
+    def skip(self, n):
+        self.done += n
+
+    def line(self, msg=""):
+        frac = self.done / self.total if self.total else 1.0
+        filled = int(self.width * frac)
+        bar = "#" * filled + "-" * (self.width - filled)
+        elapsed = time.time() - self.t0
+        eta = (elapsed / self.ran) * (self.total - self.done) if self.ran else None
+        eta_s = self._fmt(eta) if eta is not None else "..."
+        return (f"[{bar}] {self.done}/{self.total} ({100 * frac:3.0f}%) "
+                f"elapsed {self._fmt(elapsed)} | ETA ~{eta_s} | {msg}")
+
+    def tick(self, msg=""):
+        self.done += 1
+        self.ran += 1
+        print(self.line(msg), flush=True)
+
+
 OPTIONAL = {"population"}   # only run when asked for with --only
 
 
-def run_one(experiment, label, overrides, seed, base, args, ref) -> dict:
+def run_one(experiment, label, overrides, seed, base, args, ref, verbose=False) -> dict:
     grid, cfg = build_run(base, overrides, args)
     cfg.seed = seed
     t0 = time.time()
-    res = run_ga(grid, ref, cfg)
+    cb = None
+    if verbose:   # serial mode only: show life signs inside a long run
+        def cb(st, total=cfg.generations):
+            if st["generation"] % 5 == 0:
+                print(f"      {experiment}={label} seed={seed}: generation "
+                      f"{st['generation']}/{total}", flush=True)
+    res = run_ga(grid, ref, cfg, callback=cb)
     elapsed = time.time() - t0
     g = res.best_genome
     hist_best = [h["best"] for h in res.history]
@@ -372,6 +414,9 @@ def main():
         pool = mp.Pool(args.workers, initializer=_init_worker, initargs=(PROCESSED_DIR,))
     seeds = list(range(args.seeds))
 
+    progress = Progress(sum(len(exps[n][1]) * len(seeds) for n in names))
+    print(f"\nTotal: {progress.total} runs planned "
+          f"(workers={args.workers}). Progress lines show elapsed time and ETA.")
     base: dict = {}
     all_stats = {}
     for name in names:
@@ -384,17 +429,15 @@ def main():
                          "base": json.dumps(base, sort_keys=True), "seed": seed}
                 if _key(probe) not in done:
                     tasks.append((name, label, ov, seed, dict(base), args))
-        if tasks:
-            print(f"  {len(tasks)} runs to do ({len(settings) * len(seeds) - len(tasks)} already saved)",
-                  flush=True)
+        progress.skip(len(settings) * len(seeds) - len(tasks))   # already saved
         results = (pool.imap_unordered(_worker_task, tasks) if pool
-                   else (run_one(*t[:6], ref) for t in tasks))
+                   else (run_one(*t[:6], ref, verbose=True) for t in tasks))
         for row in results:
             append_row(row)
             rows.append(row)
             done.add(_key(row))
-            print(f"    done {row['experiment']}={row['label']} seed={row['seed']} "
-                  f"yardstick={row['yardstick']:.4f} ({row['elapsed_s']:.0f}s)", flush=True)
+            progress.tick(f"{row['experiment']}={row['label']} seed={row['seed']} "
+                          f"yardstick={row['yardstick']:.4f} ({row['elapsed_s']:.0f}s)")
         stats = summarize(rows, name, base)
         winner, verdict = pick_winner(stats, default_label)
         print_table(name, stats, default_label)
