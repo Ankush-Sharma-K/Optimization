@@ -77,10 +77,16 @@ with st.sidebar:
         population_size = st.slider("Population size", 6, 100, 30)
         generations = st.slider("Generations", 5, 100, 30)
         sample_size = st.slider("References compared per generation", 10, 200, 50,
-                                help="Fewer = faster but noisier scoring.")
+                                help="Only used when fast mode is off. Fewer = faster but noisier scoring.")
+        fast_mode = st.checkbox("Fast mode (recommended)", value=True,
+                                help="Skips the slow picture comparison with real Kolams while evolving. It never "
+                                     "changed which pattern won in our tests, and the distance to the closest real "
+                                     "Kolam is still measured at the end. Untick to compare during evolution "
+                                     "(about 50 times slower).")
 
     run_clicked = st.button("Evolve a Kolam", type="primary")
-    st.caption("A run usually takes a few minutes at the default settings; it depends on your computer.")
+    st.caption("Fast mode: a run takes seconds." if fast_mode else
+               "Comparing pictures while evolving: a run usually takes a few minutes, depending on your computer.")
 
 # ---------------------------------------------------------------- starting pattern editor
 start_pattern = None
@@ -126,7 +132,7 @@ elif start_mode == "Evolve my last result" and last is not None and last.setting
 if run_clicked:
     settings = ac.RunSettings(grid_n=int(grid_n), symmetry_mode=symmetry_mode,
                               population_size=int(population_size), generations=int(generations),
-                              sample_size=int(sample_size), seed=int(seed))
+                              sample_size=int(sample_size), seed=int(seed), fast_mode=bool(fast_mode))
     if start_pattern is not None:
         fraction, spread = ac.FREEDOM_CHOICES[freedom_label]
         settings.start_pattern, settings.start_fraction, settings.start_spread = start_pattern, fraction, spread
@@ -149,7 +155,8 @@ if run_clicked:
         eta = ac.eta_seconds(elapsed, done, total)
         bar.progress(min(done / total, 1.0),
                      text=f"Generation {stats['generation']} of {total - 1} | "
-                          f"best fitness {stats['best']:.3f} | time left: {fmt_seconds(eta)}")
+                          f"best {'score' if settings.fast_mode else 'fitness'} {stats['best']:.3f} | "
+                          f"time left: {fmt_seconds(eta)}")
         chart_slot.line_chart(live)
 
     try:
@@ -204,7 +211,11 @@ else:
     st.subheader("Evolution progress")
     st.line_chart({"best": [h["best"] for h in result.history],
                    "average": [h["mean"] for h in result.history]})
-    st.caption("Fitness of the best and the average pattern in each generation.")
+    if s.fast_mode:
+        st.caption("Score of the best and the average pattern in each generation (average of symmetry and loop "
+                   "closure). The comparison with real Kolams is done once, at the end.")
+    else:
+        st.caption("Fitness of the best and the average pattern in each generation.")
 
 with st.expander("About this app"):
     st.write(

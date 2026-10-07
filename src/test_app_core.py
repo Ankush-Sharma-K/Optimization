@@ -28,7 +28,7 @@ check("validate accepts defaults", ac.validate_settings(ac.RunSettings()) is Non
 cfg = ac.make_ga_config(ac.RunSettings(grid_n=13))
 check("cfg mutation rate = 1/144", abs(cfg.mutation_rate - 1 / 144) < 1e-12)
 check("cfg symmetry mirror", cfg.symmetry_mode == "mirror")
-cfg2 = ac.make_ga_config(ac.RunSettings(grid_n=10, symmetry_mode=None), config_path="/nonexistent.json")
+cfg2 = ac.make_ga_config(ac.RunSettings(grid_n=10, symmetry_mode=None, fast_mode=False), config_path="/nonexistent.json")
 check("fallback ops used", cfg2.crossover_method == "block" and cfg2.tournament_size == 3 and cfg2.symmetry_mode is None)
 check("fallback fitness weights", abs(cfg2.fitness_kwargs["loop_weight"] - 1 / 3) < 1e-12)
 with tempfile.TemporaryDirectory() as d:
@@ -38,6 +38,27 @@ with tempfile.TemporaryDirectory() as d:
     open(p, "w").write("not json")
     c4 = ac.make_ga_config(ac.RunSettings(), config_path=p)
     check("corrupt config falls back", c4.tournament_size == 3)
+
+# --- fast mode: no similarity term, no rendering while evolving
+check("fast mode is the default", ac.RunSettings().fast_mode is True)
+fk = ac.make_ga_config(ac.RunSettings()).fitness_kwargs
+check("fast config: similarity weight 0, structure 0.5/0.5", fk["similarity_weight"] == 0 and fk["symmetry_weight"] == 0.5)
+fk2 = ac.make_ga_config(ac.RunSettings(fast_mode=False)).fitness_kwargs
+check("slow config keeps the tuned weights", abs(fk2["similarity_weight"] - 1 / 3) < 1e-9)
+import similarity as _sim
+from fitness import fitness as _fit, symmetry_score as _ss, loop_closure_score as _ls
+from population import Population as _Pop
+from grid import PulliGrid as _PG
+_g = _Pop(_PG(n=8), 1, seed=0).initialize().genomes[0]
+_orig = _sim.similarity_score
+_sim.similarity_score = lambda *a, **k: (_ for _ in ()).throw(AssertionError("similarity computed"))
+try:
+    v = _fit(_g, [("x", None, None)], symmetry_weight=0.5, loop_weight=0.5, similarity_weight=0.0)
+    check("fitness skips similarity when its weight is 0", abs(v - (0.5 * _ss(_g) + 0.5 * _ls(_g))) < 1e-12)
+except AssertionError:
+    check("fitness skips similarity when its weight is 0", False)
+finally:
+    _sim.similarity_score = _orig
 
 # --- missing data gives a clear error
 for bad in ("/no/such/dir", tempfile.mkdtemp()):
@@ -59,6 +80,8 @@ check("genome is symmetric (mirror, grid 13)", abs(symmetry_score(r.genome) - 1.
 check("chromosome length 144", len(r.chromosome) == 144)
 check("match found", r.match_name is not None and r.match_skeleton is not None and r.d_min > 0)
 check("metrics in range", 0 <= r.symmetry <= 1 and 0 <= r.loop_closure <= 1 and 0 <= r.best_fitness <= 1)
+rs = ac.run_evolution(refs, ac.RunSettings(**{**s.__dict__, "fast_mode": False}))
+check("slow mode also runs and is symmetric", abs(rs.symmetry - 1.0) < 1e-9 and len(rs.history) == s.generations + 1)
 r2 = ac.run_evolution(refs, s)
 check("same seed -> same result", r2.chromosome == r.chromosome)
 sm = ac.result_summary(r)

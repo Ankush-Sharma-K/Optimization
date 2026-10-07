@@ -30,7 +30,7 @@ import numpy as np
 
 from grid import PulliGrid
 from ga import GAConfig, run_ga
-from fitness import symmetry_score, loop_closure_score
+from fitness import fitness, symmetry_score, loop_closure_score
 from similarity import precompute_reference_transforms, best_match
 from dataset import load_processed_dataset
 from symmetry import SYMMETRY_MODES, symmetrize_chromosome
@@ -43,6 +43,10 @@ CONFIG_PATH = os.environ.get("KOLAM_CONFIG_PATH", os.path.join(_HERE, "..", "out
 FALLBACK_OPERATORS = {"crossover_method": "block", "mutation_method": "flip",
                       "tournament_size": 3, "elite_count": 2, "rate_mult": 1.0}
 DEFAULT_FITNESS_KWARGS = {"symmetry_weight": 1 / 3, "loop_weight": 1 / 3, "similarity_weight": 1 / 3}
+# Fast mode: rendering each pattern to compare it with the real Kolams is ~95% of the run time, and on Day 12
+# the similarity term never changed which pattern won (all candidates are ~equally far from the references).
+# So fast mode evolves on symmetry + loop closure only; similarity is measured once at the end.
+FAST_FITNESS_KWARGS = {"symmetry_weight": 0.5, "loop_weight": 0.5, "similarity_weight": 0.0}
 
 GRID_RANGE = (6, 16)
 # "How much may the GA change my pattern?"  label -> (start_fraction, start_spread)
@@ -65,6 +69,7 @@ class RunSettings:
     start_pattern: Optional[List[int]] = None   # flat 0/1 tile list (length (grid_n-1)**2) to evolve from
     start_fraction: float = 0.5                 # share of the population that starts from it
     start_spread: float = 0.05                  # how much the starting copies differ from it
+    fast_mode: bool = True                      # True: skip the slow image comparison while evolving
 
 
 @dataclass
@@ -72,7 +77,7 @@ class EvolutionResult:
     settings: RunSettings
     genome: object                            # KolamGenome
     chromosome: List[int]
-    best_fitness: float                       # vs ALL references
+    best_fitness: float                       # full formula (symmetry, loops, similarity) vs ALL references
     symmetry: float
     loop_closure: float
     d_min: float                              # px to the closest reference (lower = more similar)
@@ -149,7 +154,8 @@ def make_ga_config(s: RunSettings, config_path: str = CONFIG_PATH) -> GAConfig:
         crossover_method=ops["crossover_method"], mutation_method=ops["mutation_method"],
         mutation_rate=float(ops["rate_mult"]) / n_tiles,
         sample_size=min(s.sample_size, 10 ** 9), seed=s.seed,
-        symmetry_mode=s.symmetry_mode, fitness_kwargs=ops["fitness_kwargs"],
+        symmetry_mode=s.symmetry_mode,
+        fitness_kwargs=dict(FAST_FITNESS_KWARGS) if s.fast_mode else ops["fitness_kwargs"],
         initial_chromosome=None if s.start_pattern is None else [int(g) for g in s.start_pattern],
         initial_fraction=s.start_fraction, initial_spread=s.start_spread)
 
@@ -186,9 +192,11 @@ def run_evolution(refs, settings: RunSettings,
     res = run_ga(PulliGrid(n=settings.grid_n), refs, cfg, callback=cb)
     g = res.best_genome
     name, d_min = best_match(g, refs)
+    # one full-formula score against ALL references, so the number is comparable between modes
+    final_fitness = fitness(g, refs, **_operators(config_path)["fitness_kwargs"])
     skeleton = next((sk for n, sk, _dt in refs if n == name), None)
     return EvolutionResult(
-        settings=settings, genome=g, chromosome=g.to_chromosome(), best_fitness=float(res.best_fitness),
+        settings=settings, genome=g, chromosome=g.to_chromosome(), best_fitness=float(final_fitness),
         symmetry=float(symmetry_score(g)), loop_closure=float(loop_closure_score(g)),
         d_min=float(d_min), match_name=name, match_skeleton=skeleton, history=history,
         elapsed_s=time.time() - t0)

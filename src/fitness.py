@@ -157,6 +157,9 @@ def fitness(genome: KolamGenome, reference_transforms=None,
         total_weight = symmetry_weight + loop_weight
         return (symmetry_weight * s + loop_weight * l) / total_weight
 
+    if similarity_weight == 0:   # the term adds nothing, so skip the (slow) rendering
+        return symmetry_weight * s + loop_weight * l
+
     from similarity import similarity_score  # local import: keeps fitness.py
     # usable without matplotlib/scipy/renderer when no dataset is used
     sim = similarity_score(genome, reference_transforms, scale=similarity_scale,

@@ -41,6 +41,7 @@ def install():
     st.radio = lambda label, options, index=0, **k: (calls.append(("radio", (label, tuple(options)), k)),
                                                      overrides.get(label, options[index]))[1]
     st.data_editor = lambda df, **k: (calls.append(("data_editor", (), k)), df)[1]
+    st.checkbox = lambda label, value=False, **k: (calls.append(("checkbox", (label,), k)), overrides.get(label, value))[1]
     st.button = lambda label, **k: (calls.append(("button", (label,), k)), overrides.get(label, False))[1]
     st.columns = lambda spec, **k: [Dummy() for _ in range(spec if isinstance(spec, int) else len(spec))]
     def cache_resource(*a, **k):
@@ -81,6 +82,7 @@ res = st.session_state.get("result")
 check("result stored in session_state", res is not None and res.settings.grid_n == 13)
 check("png stored", st.session_state.get("png", b"")[:8] == b"\x89PNG\r\n\x1a\n")
 prog = names("progress")
+check("fast mode is on by default", res.settings.fast_mode is True)
 check("progress bar updated every generation + start/done", len(prog) >= 6 + 2 and prog[-1][1][0] == 1.0)
 check("live chart updated", len(names("line_chart")) >= 6)
 check("no error raised", not names("error"))
