@@ -45,7 +45,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(_HERE, "..", "outputs")
 PROCESSED_DIR = os.path.join(_HERE, "..", "data", "processed")
 RESULTS_CSV = os.path.join(OUTPUT_DIR, "day12_results.csv")
-BEST_CONFIG_JSON = os.path.join(OUTPUT_DIR, "day12_best_config.json")
+BEST_CONFIG_JSON = os.path.join(OUTPUT_DIR, "day12_best_config.json")   # the config the app/scripts READ
+# experiments.py never writes to BEST_CONFIG_JSON unless --write-config is given
+# (and then it backs up the existing file first). By default it writes here:
+EXPERIMENTS_CONFIG_JSON = os.path.join(OUTPUT_DIR, "day12_experiments_config.json")
 
 DEFAULT_GRID_N = 6   # matches visualize_ga.py (6x6 dots -> 5x5 cells)
 SCALE_CANDIDATES = (5.0, 10.0, 20.0, 40.0, 80.0)
@@ -353,11 +356,15 @@ def plot_experiments(all_stats: Dict[str, Tuple[dict, str, str]], path):
 # --------------------------------------------------------------------------
 # Tuned config for the app
 # --------------------------------------------------------------------------
-def tuned_config(path=BEST_CONFIG_JSON, **overrides):
+def tuned_config(path=BEST_CONFIG_JSON, grid_n=None, **overrides):
     """Return (grid_n, GAConfig) built from the Day 12 result file.
+    grid_n: use another grid size (mutation rate is rescaled to it).
     Extra keyword args override GAConfig fields (e.g. generations=40)."""
     with open(path) as f:
         spec = json.load(f)
+    if grid_n is not None:
+        spec["grid_n"] = grid_n
+        spec["overrides"] = {**spec["overrides"], "grid_n": grid_n}
     ns = argparse.Namespace(pop=spec["population_size"], generations=spec["generations"],
                             sample=spec["sample_size"], grid_n=spec["grid_n"])
     grid, cfg = build_run(spec["overrides"], {}, ns)
@@ -379,6 +386,9 @@ def main():
     ap.add_argument("--grid-n", type=int, default=DEFAULT_GRID_N)
     ap.add_argument("--only", nargs="*", help="run only these experiments")
     ap.add_argument("--fresh", action="store_true", help="ignore/overwrite saved results")
+    ap.add_argument("--write-config", action="store_true",
+                    help="ALSO write day12_best_config.json (the file the app reads); the existing "
+                         "file is backed up first. Without this flag it is never touched.")
     ap.add_argument("--scale-only", action="store_true")
     ap.add_argument("--workers", type=int, default=1,
                     help="parallel processes (try cpu_count-1); results are identical to --workers 1")
@@ -455,9 +465,21 @@ def main():
     spec = {"overrides": base, "population_size": args.pop, "generations": args.generations,
             "sample_size": args.sample, "grid_n": base.get("grid_n", args.grid_n),
             "note": "Chosen greedily one factor at a time; see day12_results.csv"}
-    with open(BEST_CONFIG_JSON, "w") as f:
+    with open(EXPERIMENTS_CONFIG_JSON, "w") as f:
         json.dump(spec, f, indent=2)
-    print(f"\nSaved {BEST_CONFIG_JSON}\n{json.dumps(spec, indent=2)}")
+    saved = [EXPERIMENTS_CONFIG_JSON]
+    if args.write_config:
+        if os.path.exists(BEST_CONFIG_JSON):
+            import shutil
+            backup = BEST_CONFIG_JSON + time.strftime(".bak-%Y%m%d-%H%M%S")
+            shutil.copy2(BEST_CONFIG_JSON, backup)
+            print(f"Backed up existing config to {backup}")
+        with open(BEST_CONFIG_JSON, "w") as f:
+            json.dump(spec, f, indent=2)
+        saved.append(BEST_CONFIG_JSON)
+    print(f"\nSaved {', '.join(saved)}\n{json.dumps(spec, indent=2)}")
+    if not args.write_config:
+        print(f"({BEST_CONFIG_JSON} was NOT modified.)")
 
 
 if __name__ == "__main__":

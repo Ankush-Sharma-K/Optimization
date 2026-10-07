@@ -42,8 +42,8 @@ deployed as a working Streamlit web app.
 | Crossover | `crossover.py` | ✅ Done (Day 9) |
 | Mutation | `mutation.py` | ✅ Done (Day 10) — **all three GA operators complete** |
 | GA main loop | `ga.py` | ✅ Done (Day 11) — **Phase 3 complete** |
-| Experiments/tuning | `experiments.py` | 🟡 Code written (Day 12) — real-data results pending first run |
-| Streamlit app | `app.py` | ⏳ Pending (Day 13) |
+| Experiments/tuning | `experiments.py` | ✅ Done (Day 12) — tuned config in `outputs/day12_best_config.json` |
+| Streamlit app | `app_core.py` + `app.py` | 🟡 Day 13 in progress: 13a core done; 13b `app.py` written (needs first real `streamlit run`); 13c panels pending |
 | Deployment config | `Dockerfile` / `requirements.txt` | ⏳ Pending (Day 14) |
 | Polish/testing | — | ⏳ Pending (Day 15) |
 
@@ -132,7 +132,7 @@ sanity-check scripts). Reuses `render_genome()` from `renderer.py` directly
 |---|---|---|
 | `symmetry_score(genome)` | function | returns `float` in `[0, 1]` — averages horizontal-reflection, vertical-reflection, and 180°-rotation match fractions |
 | `loop_closure_score(genome)` | function | returns `float` in `[0, 1]` — fraction of curve (by arc count) in fully closed-loop graph components; **note: 1.0 is structurally unreachable**, this is a comparative score only |
-| `fitness(genome, reference_transforms=None, symmetry_weight=1/3, loop_weight=1/3, similarity_weight=1/3, similarity_scale=20.0)` | function | **the main scoring entry point** — weighted sum of symmetry, loop-closure, and (if `reference_transforms` given) similarity. Falls back to the Day 5 two-term score (weights renormalized) when `reference_transforms` is `None` — this is what Phase 3's `select()` (Day 8) should call, always passing the precomputed `reference_transforms` from `similarity.precompute_reference_transforms()`. |
+| `fitness(genome, reference_transforms=None, symmetry_weight=1/3, loop_weight=1/3, similarity_weight=1/3, similarity_scale=20.0, similarity_k=1, similarity_calibration=None)` | function | **the main scoring entry point** — weighted sum of symmetry, loop-closure, and (if `reference_transforms` given) similarity. Falls back to the Day 5 two-term score (weights renormalized) when `reference_transforms` is `None` — this is what Phase 3's `select()` (Day 8) should call, always passing the precomputed `reference_transforms` from `similarity.precompute_reference_transforms()`. |
 | `_flipped(t)` | function (internal) | `ARC_A ↔ ARC_B` |
 | `_mid(p, q)` / `_key(p)` | functions (internal) | geometry helpers for the loop-closure graph |
 | `_edge_midpoint_graph(genome)` | function (internal) | builds `{midpoint: [connected midpoints]}` adjacency map from every cell's arcs |
@@ -265,6 +265,45 @@ No new reusable names beyond `OUTPUT_DIR` / `PROCESSED_DIR` (plus private `_HERE
 
 CLI: `--quick`, `--seeds`, `--generations`, `--pop`, `--sample`, `--grid-n`, `--only`, `--fresh`, `--scale-only`, `--workers`.
 
+### Day 12.5 additions
+
+| Name | File | Notes |
+|---|---|---|
+| `distances_to_refs(genome_skeleton, reference_transforms)` | `similarity.py` | Chamfer distance to every reference (array) |
+| `similarity_distance(genome, refs, size, k=1)` | `similarity.py` | raw px distance, mean of k nearest refs |
+| `distance_matrix(genomes, refs, size)` | `similarity.py` | (n_genomes, n_refs); renders each genome once |
+| `calibrate_similarity(grid, refs, k, n_genomes, sample_size, n_subsets, seed)` | `similarity.py` | -> `{"mu","sigma","k"}` from random genomes |
+| `similarity_score(..., k=1, calibration=None)` | `similarity.py` | default = old `exp(-d/scale)`; with calibration = logistic |
+| `diagnose`, `run_variant`, `summarize`, `plot_genomes` | `similarity_fix.py` | Part 1 diagnostics / Part 2 A/B |
+| outputs | `outputs/` | `day12b_diagnostic.png`, `day12b_results.csv`, `day12b_genomes.png`, `day12b_summary.json` |
+
+### Day 12.6 additions
+
+| Name | File | Notes |
+|---|---|---|
+| `SYMMETRY_MODES` | `symmetry.py` | `("mirror", "rot180")` |
+| `symmetry_map(rows, cols, mode)` | `symmetry.py` | cached; -> `(tuple of (rep_idx, flip), n_free)` |
+| `n_free_cells(rows, cols, mode)` | `symmetry.py` | free cells the GA actually searches (`None` -> all) |
+| `symmetrize_chromosome(chrom, rows, cols, mode)` | `symmetry.py` | new symmetric chromosome from the free cells |
+| `symmetrize_genome(genome, mode)` | `symmetry.py` | copy of the genome made symmetric |
+| `GAConfig.symmetry_mode` | `ga.py` | `None` (default) / `"mirror"` / `"rot180"` |
+| `run_one`, `summarize`, `plot_genomes` | `symmetry_experiment.py` | none vs rot180 vs mirror comparison; outputs `day12c_*` |
+
+### Day 13a additions (`src/app_core.py`, tests in `src/test_app_core.py`)
+
+| Name | Kind | Notes |
+|---|---|---|
+| `RunSettings` | dataclass | `grid_n=13, symmetry_mode="mirror", population_size=30, generations=30, sample_size=50, seed=0` |
+| `EvolutionResult` | dataclass | `genome, chromosome, best_fitness, symmetry, loop_closure, d_min, match_name, match_skeleton, history, elapsed_s` |
+| `load_references(processed_dir)` | function | -> reference transforms; raises `FileNotFoundError` with a clear message |
+| `validate_settings(s)` | function | raises `ValueError` (grid 6-16, pop >= 6, gens >= 1, ...) |
+| `make_ga_config(s, config_path)` | function | tuned operators from the Day 12 JSON, fallback if missing |
+| `run_evolution(refs, s, on_progress, config_path)` | function | `on_progress(done, total, stats, elapsed)` per generation |
+| `render_png(genome, show_dots)` / `skeleton_png(skel)` | functions | PNG bytes |
+| `eta_seconds(elapsed, done, total)` / `result_summary(r)` | functions | ETA / JSON-able dict |
+| `SYMMETRY_CHOICES` | dict | UI label -> mode (`"mirror"`, `"rot180"`, `None`) |
+| `PROCESSED_DIR`, `CONFIG_PATH` | constants | overridable via `KOLAM_PROCESSED_DIR`, `KOLAM_CONFIG_PATH` |
+
 ---
 
 ## 4. Naming Conventions (keep consistent going forward)
@@ -296,11 +335,9 @@ CLI: `--quick`, `--seeds`, `--generations`, `--pop`, `--sample`, `--grid-n`, `--
 
 ## 5. Currently Pending / Next Step
 
-**Day 12 — run `experiments.py` on the real dataset** and record the winning
-settings (from the printed tables / `day12_results.csv`). Then **Day 13 —
-Streamlit app (`app.py`)**: use `tuned_config()` for defaults, `run_ga(...,
-callback=...)` for live progress, `render_genome()` for display, `best_match()`
-for "closest real Kolam".
+**Check 13b:** `pip install streamlit` (1.30+), then from `src/`: `streamlit run app.py`; report errors or odd-looking screens.
+**Day 13c:** closest-real-Kolam panel (reference skeleton drawn from `EvolutionResult.match_skeleton`), seed gallery, polish.
+Then **Day 14** deployment, **Day 15** polish/testing.
 
-**Known limitation:** our genomes are far simpler than the dataset's fractal Kolams,
-so similarity is a loose match; the `grid` experiment (n = 6/8/10) is the Day 12 probe of this.
+**Known limitations:** (1) genomes are far simpler than the dataset's fractal Kolams (Truchet-like, no dots);
+(2) pixel-distance similarity mostly measures dot density, not shape; (3) loop closure tops out near 0.85 (border strands).

@@ -107,6 +107,42 @@ of 0s and 1s without needing to know anything about geometry at all.
 diagonal placeholder with proper quarter-circle arcs so genomes render as
 real Kolam-style curves.
 
+### Day 12 — Real results (81 runs, 3 seeds each, ~3.3 h of compute in total)
+
+Yardstick = default `fitness()` on all 600 references (mean over seeds, s.e. in brackets).
+
+| Experiment | Settings (yardstick) | Verdict |
+|---|---|---|
+| crossover | single_point .643, two_point .652, uniform .643, **block .649** | all within noise; default kept |
+| mutation | **flip .649**, block_flip .655, symmetric_flip .628 | within noise; default kept |
+| tournament | 2 .649, **3 .649**, 5 .649 | no difference |
+| elite | 0 .652, **2 .649**, 4 .640 | within noise (4 is lowest) |
+| mut_rate | 0.5x .637, **1x .649**, 2x .655 | within noise (2x slightly ahead) |
+| scale | 5/10/20/40/80 all **.6489** | no effect (see finding 1) |
+| weights | equal / sim-heavy / struct-heavy all **.6489** | no effect (see finding 1) |
+| grid | 6 -> .649 (.006), 8 -> .710 (.025), **10 -> .716 (.015)** | **only clear win**: 10 beats 6 by ~4 s.e.; 8 vs 10 within noise |
+
+**Tuned config (`outputs/day12_best_config.json`):** grid_n 10, block crossover, flip
+mutation, tournament 3, elite 2, mutation rate 1x (1/chromosome length), similarity_scale 20,
+equal weights, population 30, generations 30, sample_size 50.
+
+**Findings**
+1. **The similarity term does not steer the GA.** In all 72 non-grid runs the final similarity
+   was 0.739-0.744 (distance ~6 px); changing `scale` or the weights left the final genome
+   *identical* for every seed (only `own_fitness` shifted). So evolution is effectively optimising
+   symmetry + loop closure; matching the real Kolams is not being optimised at this grid size.
+   Likely cause (hypothesis, not yet tested): the distance is the minimum over 600 references and
+   barely differs between genomes, so it gives almost no gradient.
+2. **Bigger grid helps**: 10x10 raised similarity to ~0.79 and loop closure, but each run costs
+   ~2x a grid-6 run (~340 s vs ~155 s per run in this experiment run).
+3. **Most operator choices are statistically indistinguishable with 3 seeds.** Defaults are fine.
+4. Runs are deterministic per seed (repeated default runs gave identical numbers).
+5. Seed-to-seed spread is large (e.g. symmetry 0.55 vs 0.76 at grid 6): the GA converges to
+   different structure/loop trade-offs, so conclusions need more seeds to separate close settings.
+
+**Open item for later:** make similarity informative (e.g. average of the k nearest references,
+or rank-normalise it within the population). Not done; Day 13 uses the tuned config as is.
+
 **Files added:**
 ```
 src/
@@ -762,7 +798,55 @@ outputs/
 
 ---
 
-## Day 12 — Experiments & Tuning (code ready; results pending your first run)
+## Day 12 — Experiments & Tuning (COMPLETE)
+
+**Goal:** Pick the GA defaults for the app with evidence, not guesses.
+
+**What was built:**
+- `src/experiments.py` — one-factor-at-a-time (greedy) tuning over several seeds.
+  Order: crossover method → mutation method → tournament size → elite count →
+  mutation-rate multiplier → similarity `scale` → fitness weights → grid size.
+  After each experiment the winner is locked into a running base config, so
+  later experiments are tested on top of earlier winners. `population` size is
+  optional (`--only population`), since a bigger population just costs more evaluations.
+- **Common yardstick:** weights/scale change what `run_ga` optimises, so its own
+  `best_fitness` is not comparable across settings. Each run's final best genome
+  is re-scored with the *default* `fitness()` against ALL references; that number
+  ranks settings.
+- **Noise guard:** a challenger replaces the incumbent only if it beats it by more
+  than the combined standard error across seeds; otherwise the default is kept.
+- Results go to `outputs/day12_results.csv` (resumable: re-running skips finished
+  runs), plus `day12_experiments.png`, `day12_scale_analysis.png`,
+  `day12_best_config.json`. `tuned_config()` rebuilds the chosen `(grid_n, GAConfig)`.
+- **One edit to existing code:** `fitness()` gained `similarity_scale=20.0`
+  (passed to `similarity_score(scale=...)`) so scale can be tuned via `fitness_kwargs`.
+  Default behaviour is unchanged.
+
+**Tested:** plumbing on a synthetic set first, then the full run on the real dataset (results below).
+
+**To do on your machine:** run `python visualize_ga.py` from `src/`. Two
+assumptions to confirm: `KolamGenome(grid)` builds a default tile grid
+(then `from_chromosome` fills it), and `Population.replace()` accepts a list
+of `KolamGenome`. `_genome_from_chromosome` handles `from_chromosome`
+either mutating in place or returning a genome. Please also note the
+runtime printed (30 × 30 with 100 sampled references) — it informs Day 12.
+
+**Phase 3 (Evolution Engine) is complete.**
+
+**Next (Day 12):** experiments and tuning with `run_ga()`.
+
+**Files added:**
+```
+src/
+├── ga.py
+└── visualize_ga.py
+outputs/
+└── day11_ga_run.png   (generated when you run the script)
+```
+
+---
+
+## Day 12 — Experiments & Tuning (COMPLETE)
 
 **Goal:** Pick the GA defaults for the app with evidence, not guesses.
 
@@ -800,8 +884,7 @@ python experiments.py --scale-only              # only the similarity-scale tabl
 Rough cost: ~27 settings x 3 seeds = 81 runs; at your Day 11 speed (~70 s for
 30x30) that is ~95 min serial, roughly 1/workers of that in parallel.
 
-**Next:** paste back the printed tables (or `day12_results.csv`) so conclusions can
-be recorded here; then Day 13 (Streamlit app) using `tuned_config()`.
+**Next:** Day 13 (Streamlit app) using `tuned_config()`.
 
 **Files added:**
 ```
@@ -811,3 +894,181 @@ outputs/
 ├── day12_results.csv / day12_experiments.png / day12_scale_analysis.png
 └── day12_best_config.json            (generated when you run the script)
 ```
+
+---
+
+## Day 12.5 — Fixing the flat similarity term (COMPLETE)
+
+**Why:** Day 12 showed final similarity stuck at ~0.74 in every run, and `scale`/weights changed nothing.
+
+**Diagnosis (tested on a stand-in reference set; to be confirmed on the real data):**
+- The Chamfer distance of random genomes varies by only ~0.02 px (about 0.25 %) between patterns
+  on the same grid, while changing the grid size moved it by several px. The metric mostly measures
+  dot density (how much of the canvas the curves cover), not shape.
+- Reason: every tile is one of two arc orientations and every cell draws arcs, so all genomes cover
+  the canvas almost identically. A pixel-distance score therefore cannot tell Truchet tilings apart.
+
+**What was built (backward compatible; defaults reproduce the old scores exactly):**
+- `similarity.py`: `distances_to_refs`, `similarity_distance(k)`, `distance_matrix`,
+  `calibrate_similarity(grid, refs, k, sample_size)` -> `{mu, sigma, k}`; `similarity_score` gained
+  `k` (mean of k nearest references) and `calibration` (logistic score centred on the average random genome).
+- `fitness.py`: `fitness()` gained `similarity_k` and `similarity_calibration`.
+- `similarity_fix.py`: Part 1 diagnostics (spread per distance variant + grid-size sweep 6..16),
+  Part 2 A/B GA runs (baseline / calib_k1 / calib_k5 / calib_k5_w50) judged by neutral measures on all
+  references (raw d_min in px, d_k5, structural = mean of symmetry and loop closure), with a progress
+  bar, `--workers`, resumable CSV, and a genome image grid.
+- On the stand-in data the calibrated score's spread across random genomes rose from ~0.0006 to ~0.19,
+  so selection can now see differences.
+
+**Expected outcome (be realistic):** because pattern-to-pattern variation is tiny, the A/B will likely
+show only a small d_min gain (hundredths of a pixel) at best. The big lever is probably grid density.
+
+**To run (from `src/`):** `python similarity_fix.py --quick`, then `python similarity_fix.py --workers 3`
+(12 GA runs at the tuned grid), or `--diagnose-only` (about 2 min).
+
+**Next:** Day 13 (Streamlit app).
+
+### Day 12.5 — Part 1 grid sweep, REAL data (20 random genomes per grid)
+
+| grid | d_min px | std px | sec/genome |
+|---|---|---|---|
+| 6 | 5.994 | 0.0246 | 0.251 |
+| 8 | 4.802 | 0.0116 | 0.284 |
+| 10 | 4.622 | 0.0203 | 0.320 |
+| 12 | 3.898 | 0.0087 | 0.356 |
+| 14 | 3.841 | 0.0187 | 0.413 |
+| 16 | 4.119 | 0.0087 | 0.474 |
+
+Reading: on real data the diagnosis holds. Changing the grid from 6 to 16 moves the distance by ~1.9 px,
+while different patterns on one grid differ by only ~0.01-0.02 px. The distance is lowest at grids 12-14
+(12 is within 0.06 px of 14 and cheaper); it gets worse at 16, so there is an optimum density. Grid 12 and
+14 were never run through the GA (Day 12 tested 6/8/10), so their GA behaviour is untested.
+`similarity_fix.py` now accepts `--grid-n` (and `tuned_config(grid_n=...)` rescales the mutation rate).
+
+### Day 12.5 — Decision (A/B skipped as too slow)
+
+The 12-run A/B was too slow to run. Decision from the evidence already collected:
+- **Grid 10 -> 12** (distance 4.62 -> 3.90 px on real data; 14 is only 0.06 px better and slower). Updated
+  `day12_best_config.json` carries `grid_n: 12`; mutation rate rescales automatically (1x / chromosome length).
+- **Calibrated / k-nearest similarity stays OFF by default.** Pattern-to-pattern spread is ~0.01-0.02 px, so it
+  can only reward noise-level differences; it is available in the code but untested in the GA, so it is not used.
+- Optional cheap check: `python similarity_fix.py --grid-n 12 --variants baseline --seeds 1` (one GA run).
+- Not verified: GA behaviour at grid 12 (Day 12 only tested 6/8/10).
+
+### Day 12.5 — Final check: one GA run at grid 12, REAL data
+
+`python similarity_fix.py --grid-n 12 --variants baseline --seeds 1` (tuned settings, 30 pop x 30 gens):
+- Run time **176 s** (a full 12-run comparison would therefore be ~35 min, not hours).
+- Final best genome: **d_min 3.893 px**, d_k5 3.903 px, structural (mean of symmetry and loop closure) **0.657**.
+- Random genomes at grid 12 average 3.898 px (std 0.009), so the GA's result is *inside the random range*:
+  the GA did not make the genome more similar to the references than a random one, confirming that
+  evolution is steering symmetry/loop closure only. The better similarity comes from the grid size.
+- Overall fitness estimate ~0.71 (similarity score exp(-3.893/20) = 0.823), the same as grid 10's 0.716 +- 0.015
+  from Day 12; the smaller distance is offset by slightly lower structure (0.657 vs 0.677). One seed, so
+  grid 12 vs 10 is not statistically separated.
+- Diagnostics on real data (CV between random genomes, grid 12): min 0.21 %, 5-nearest 0.15 %, 20-nearest 0.13 %,
+  all-refs 0.21 % -- no distance variant separates patterns.
+- Calibration at grid 12 (50 sampled refs): k=1 mu 3.918 px sigma 0.0066 px; k=5 mu 3.942 px sigma 0.0051 px.
+
+**Conclusion:** grid 12 works (runs normally, sensible structure). Defaults for the app: grid 12 (selectable
+6-14), tuned operators from Day 12, calibrated similarity OFF. The A/B of the calibrated variants was not run;
+the code remains available. Report-worthy finding: with a two-orientation Truchet encoding, pixel-based similarity
+to the fractal Kolam dataset can only be improved through dot density, not pattern shape.
+
+---
+
+## Day 12.6 — Symmetric-by-construction patterns (COMPLETE)
+
+**Why:** the evolved grid-12 pattern had no visible symmetry (score ~0.66) and open strands; real Kolams are symmetric.
+
+**What was built:**
+- `src/symmetry.py` — a repair step that copies a free region of the chromosome onto the rest of the grid.
+  Modes: `"mirror"` (left-right + top-bottom + 180 deg; free region = top-left quadrant, tiles flip ARC_A<->ARC_B
+  under a mirror, exactly as `symmetry_score` assumes) and `"rot180"` (free region = half the cells).
+- `src/ga.py` — `GAConfig.symmetry_mode` (default `None` = Day 11 behaviour unchanged). When set, the initial
+  population and every child are repaired; the per-gene mutation rate is scaled up so the expected number of
+  effective flips per child stays the same.
+- `src/symmetry_experiment.py` — compares none / rot180 / mirror at the tuned settings (progress bar, `--workers`,
+  resumable CSV, genome image grid), judged by symmetry, loop closure, d_min and the default fitness on all references.
+
+**Tested (stand-in data only):** repair is idempotent; mirror symmetry score is exactly 1.000 at even tile counts
+(grid 11, 13) and 0.884 at 11x11 tiles (grid 12); rot180 reaches ~0.61-0.67 from the repair alone; every member of the
+final population stays symmetric; the picture for `mirror` is visibly mirror-symmetric on both axes.
+
+**Parity caveat:** with an odd tile count (grid 12 -> 11x11) the middle row/column sits on the mirror axis and a
+tile can never equal its own flip, so symmetry tops out at 1 - (4N-2)/(3N^2) = 0.884. Grid 13 (12x12 tiles) can reach 1.0.
+Distance to references at grid 13 has not been measured (grids 12 and 14 gave 3.90 and 3.84 px).
+
+**Caution:** forcing symmetry raises the default fitness mechanically (symmetry term ~0.65 -> 1.0), so compare loop
+closure and d_min separately, not the fitness.
+
+**To run (from `src/`):** `python symmetry_experiment.py --quick`, then
+`python symmetry_experiment.py --grids 13 --seeds 2 --workers 3` (6 GA runs; ~3 min each at grid 12, so roughly 20-40 min).
+**Next:** Day 13 (Streamlit app).
+
+### Day 12.6 — Results, REAL data (grid 13 = 12x12 tiles, 2 seeds, 30 generations; mean +- s.e.)
+
+| variant | symmetry | loop closure | d_min px | fitness (yardstick) |
+|---|---|---|---|---|
+| none | 0.743 +- 0.025 | 0.694 +- 0.056 | 3.720 +- 0.003 | 0.756 +- 0.027 |
+| rot180 | 0.972 +- 0.009 | 0.757 +- 0.035 | 3.721 +- 0.021 | 0.853 +- 0.015 |
+| **mirror** | **1.000** | **0.847** (both seeds) | 3.714 +- 0.002 | **0.893** |
+
+- **Mirror** reaches perfect symmetry and the highest loop closure; its 0.847 beats every none (0.64, 0.75) and
+  rot180 (0.72, 0.79) run. rot180 is in between. Only 2 seeds, so treat as strong but not statistically proven.
+- **Similarity is unchanged** (3.71-3.72 px for all three): symmetry neither helps nor hurts it, as expected.
+- **Fitness is partly mechanical**: of mirror's +0.137 over none, ~+0.086 is the symmetry term (+0.257 / 3);
+  ~+0.051 is loop closure; similarity contributes ~0. The loop-closure gain is the real improvement.
+- **The two mirror seeds found different patterns (52 of 144 tiles differ) with identical scores (0.8926)**: a quality
+  plateau with many equally good designs, so the app can offer variety by changing the seed.
+- **Grid 13 is the best distance seen so far**: 3.72 px vs 3.89 (grid 12) and 3.84 (grid 14), measured on random genomes
+  in Day 12.5 for even grids only; odd grids 11 and 15 were never measured.
+- **Run times (274-1140 s) are not interpretable**: they varied 4x between identical-cost runs, so the machine was
+  loaded (parallel jobs). Do not conclude anything about speed from them.
+- Remaining flaw: loop closure 0.85, not 1.0 (the boundary leaves open strands, a property of the encoding), and the
+  patterns are still Truchet-like (no dots, ring loops).
+
+**Decision:** app default = grid 13, `symmetry_mode="mirror"`; the app should also offer none / rot180 and grid
+selection for comparison. New `day12_best_config.json` carries `grid_n: 13` and `"symmetry_mode": "mirror"`
+(`tuned_config(symmetry_mode=None)` turns it off). Not tested: whether fewer generations suffice for mirror (only 36
+free cells), so Day 13 should show the best-fitness curve.
+
+### Safety change to `experiments.py`
+
+`experiments.py` can no longer overwrite `day12_best_config.json` (the file the app and scripts read). By default it writes
+its result to `outputs/day12_experiments_config.json` and prints that the real config was NOT modified. Only with
+`--write-config` does it also write `day12_best_config.json`, and it first copies the existing file to
+`day12_best_config.json.bak-<date-time>`. Tested: without the flag the config's checksum is unchanged; with the flag a
+backup is created. Day 12 itself is finished and does not need to be re-run.
+
+---
+
+## Day 13 — Streamlit app (IN PROGRESS, split into 3 phases to keep each step small)
+
+| Phase | Content | Status |
+|---|---|---|
+| 13a | `app_core.py` (all logic, no Streamlit) + `test_app_core.py` | DONE (32 checks pass on real data) |
+| 13b | `app.py`: sidebar controls, Run button, live progress bar + ETA + fitness curve, result image, metrics, PNG/JSON download | CODE READY (your first `streamlit run app.py` pending) |
+| 13c | "Closest real Kolam" panel, seed gallery for variety, error messages, session state, final polish | after 13b |
+
+### 13a — app_core.py
+- `RunSettings` (grid_n 13, symmetry_mode "mirror", pop 30, gens 30, sample 50, seed 0), `validate_settings`,
+  `make_ga_config` (reads the Day 12 operators from `day12_best_config.json`; built-in fallback if the file is missing),
+  `run_evolution(refs, settings, on_progress)` -> `EvolutionResult` (best genome, metrics, curve history, closest reference
+  name + skeleton), `render_png`, `skeleton_png`, `eta_seconds`, `result_summary`.
+- Paths can be overridden with `KOLAM_PROCESSED_DIR` and `KOLAM_CONFIG_PATH` (for Day 14 deployment).
+- Tested: 32 checks pass on stand-in data (validation, config + fallback + corrupt file, progress callbacks, symmetric result,
+  determinism per seed, PNG output, clamped sample size, all symmetry modes). The Streamlit screen itself is NOT yet built or tested.
+- Closest-Kolam panel will draw the reference *skeleton* from memory, so it works even without the raw images.
+
+### 13b — app.py (code ready)
+- Sidebar: symmetry mode, grid size (6-16, default 13) with a note when an even grid makes perfect mirror symmetry impossible,
+  seed, and an "Advanced" box (population, generations, references per generation). **Evolve a Kolam** button.
+- During the run: progress bar with generation number, best fitness and time left, plus a live fitness chart.
+- Result (kept in `session_state`, so clicking a download button does not lose it): the evolved Kolam, four metrics (fitness,
+  symmetry, loop closure, distance to closest real Kolam), PNG and JSON downloads, final fitness curve, "About" box with the limits.
+- Friendly `st.error` messages for missing reference data, invalid settings and failed runs.
+- `app_core.py` now forces matplotlib's off-screen "Agg" backend at import (Streamlit runs scripts in a worker thread).
+- Tested with a fake `streamlit` module (`test_app_ui.py`, 18 checks): first visit, a full run, rerun keeps the result, even-grid hint,
+  missing data. NOT tested: how the page actually looks, and Streamlit version differences (use Streamlit 1.30 or newer).
+- Not yet in the app: "closest real Kolam" picture and seed gallery (Phase 13c).

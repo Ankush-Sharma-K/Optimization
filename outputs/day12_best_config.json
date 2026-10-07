@@ -11,11 +11,12 @@
       "loop_weight": 0.3333333333333333,
       "similarity_weight": 0.3333333333333333
     },
-    "grid_n": 10
+    "grid_n": 13,
+    "symmetry_mode": "mirror"
   },
   "population_size": 30,
   "generations": 30,
   "sample_size": 50,
-  "grid_n": 10,
-  "note": "Chosen greedily one factor at a time; see day12_results.csv"
+  "grid_n": 13,
+  "note": "Day 12 operators; grid 13 and symmetry_mode mirror chosen after Day 12.5/12.6 (grid 13: d_min ~3.72 px, mirror: symmetry 1.0, loop 0.85)."
 }

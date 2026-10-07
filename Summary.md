@@ -692,9 +692,56 @@ seed-to-seed noise.
 
 **`src/experiments.py`**; `fitness()` gained a `similarity_scale` argument.
 
-### Verified
+### Verified and Results
 
-Plumbing only, on a synthetic reference set — real-data results are pending your run.
+Run on the real dataset (81 runs). Only grid size mattered clearly (10x10 beat 6x6 by ~4 s.e.);
+crossover, mutation, selection pressure, elitism, mutation rate were within noise. `scale` and
+fitness weights had *no effect at all* because the similarity term is nearly constant across
+genomes (~0.74), so it does not steer the GA. Tuned config: grid 10, block crossover, flip mutation,
+tournament 3, elite 2, 1x rate, scale 20, equal weights, pop 30, gens 30. Details in PROGRESS.md.
+
+---
+
+## Day 12.5 — Similarity Fix
+
+### Conceptual Overview
+Day 12 showed the similarity score never moved. Day 12.5 explains why and adds a better-behaved version.
+
+### Logical Design
+- Diagnosis: all Truchet tilings cover the canvas almost identically, so the Chamfer distance depends on
+  grid density, not on pattern shape (pattern-to-pattern spread ~0.02 px vs several px across grid sizes).
+- Fix to test: average the k nearest references, and re-centre/re-scale the score on the spread of random
+  genomes (calibration) so small differences become visible to selection.
+- Judged by neutral measures on all references (raw px distance, structural score), not by the GA's own fitness.
+
+### What Was Built
+`similarity.py` (new functions, defaults unchanged), `fitness.py` (two new arguments), `similarity_fix.py`.
+
+### Verified and Results
+Real data: pattern-to-pattern distance spread is ~0.01-0.02 px vs ~2 px across grid sizes; distance is lowest
+at grids 12-14. One GA run at grid 12 (176 s) gave d_min 3.893 px, inside the random-genome range, and structural
+0.657. Decision: grid 12 default, calibrated similarity off. Details in PROGRESS.md.
+
+---
+
+## Day 12.6 — Symmetric-by-Construction
+
+### Conceptual Overview
+Instead of rewarding symmetry and hoping the GA finds it, force it: every genome is repaired to be symmetric.
+
+### Logical Design
+- A repair step copies a free region (a quarter for mirror, half for 180-degree rotation) onto the rest of the grid,
+  flipping tile type under a mirror, consistent with `symmetry_score`.
+- The GA searches only the free cells; mutation rate is rescaled accordingly. `symmetry_mode=None` keeps old behaviour.
+- Odd tile counts cannot be perfectly mirror-symmetric (centre row/column on the axis); even tile counts can.
+
+### What Was Built
+`symmetry.py`, a `symmetry_mode` option in `ga.py`, and `symmetry_experiment.py`.
+
+### Verified and Results
+Real data (grid 13, 2 seeds): mirror gives symmetry 1.0 and loop closure 0.847 vs 0.694 (none) and 0.757 (rot180);
+similarity unchanged (~3.72 px). Part of the fitness gain is mechanical (symmetry term); the loop gain is real.
+Default for the app: grid 13 + mirror. Details in PROGRESS.md.
 
 ---
 
@@ -728,7 +775,10 @@ OT Project/
 │   ├── visualize_mutation.py
 │   ├── ga.py
 │   ├── visualize_ga.py
-│   └── experiments.py
+│   ├── experiments.py
+│   ├── similarity_fix.py
+│   ├── symmetry.py
+│   └── symmetry_experiment.py
 ├── data/
 │   ├── raw/kolam19/, kolam29/, kolam109/   (600 real reference images)
 │   └── processed/                          (cached preprocessed skeletons)
@@ -748,3 +798,12 @@ OT Project/
 ## Next Up: Day 12
 
 Experiments and tuning with `run_ga()`: operator choices, rates, tournament size, similarity scale, grid size.
+
+---
+
+## Day 13 — Streamlit App (in progress, phases 13a / 13b / 13c)
+
+**13a (done):** `app_core.py` holds all app logic without any Streamlit code (settings, validation, GA config from the Day 12
+file with a fallback, `run_evolution` with a progress callback, PNG rendering, ETA); 32 tests pass on stand-in data.
+**13b (code ready):** `app.py` with sidebar controls, live progress and fitness chart, result image, metrics and downloads; tested with a fake Streamlit, first real `streamlit run` pending.
+**13c pending:** closest-real-Kolam panel, seed gallery and polish.

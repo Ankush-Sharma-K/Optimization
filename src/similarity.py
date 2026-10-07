@@ -91,28 +91,96 @@ def _chamfer_distance(genome_skeleton: np.ndarray, genome_dt: np.ndarray,
     return max(d_ab, d_ba)
 
 
-def similarity_score(genome: KolamGenome, reference_transforms: ReferenceTransforms,
-                      size: int = IMAGE_SIZE, scale: float = 20.0) -> float:
-    """Renders + preprocesses the genome, compares it against every
-    precomputed reference (via precompute_reference_transforms) using
-    Chamfer distance, and returns the best match mapped to a [0, 1] score
-    via exp(-distance / scale).
-
-    `scale` controls how quickly the score falls off with distance (in
-    pixels, on the `size` x `size` canvas) -- this is a starting value,
-    expected to be retuned once real runs (Day 12) show what a
-    "meaningfully similar" distance actually looks like in practice.
-    """
-    genome_skeleton = genome_to_skeleton(genome, size=size)
+def distances_to_refs(genome_skeleton: np.ndarray, reference_transforms: ReferenceTransforms) -> np.ndarray:
+    """Chamfer distance from one rendered genome skeleton to EVERY reference
+    (one value per reference, in the order of `reference_transforms`)."""
     if genome_skeleton.sum() == 0:
-        return 0.0
+        return np.full(len(reference_transforms), 1e6)
     genome_dt = distance_transform_edt(~genome_skeleton)
-
-    best_distance = min(
+    return np.array([
         _chamfer_distance(genome_skeleton, genome_dt, ref_skeleton, ref_dt)
         for _name, ref_skeleton, ref_dt in reference_transforms
-    )
-    return float(np.exp(-best_distance / scale))
+    ])
+
+
+def _knn_mean(distances: np.ndarray, k: int) -> np.ndarray:
+    """Mean of the k smallest distances along the last axis (k=1 -> plain minimum)."""
+    k = max(1, min(int(k), distances.shape[-1]))
+    return np.sort(distances, axis=-1)[..., :k].mean(axis=-1)
+
+
+def similarity_distance(genome: KolamGenome, reference_transforms: ReferenceTransforms,
+                         size: int = IMAGE_SIZE, k: int = 1) -> float:
+    """Raw distance in pixels (lower = more similar): the mean of the k
+    nearest references' Chamfer distances. k=1 is the original best-match
+    distance; k>1 is smoother because it does not hinge on one reference."""
+    d = distances_to_refs(genome_to_skeleton(genome, size=size), reference_transforms)
+    return float(_knn_mean(d, k))
+
+
+def distance_matrix(genomes, reference_transforms: ReferenceTransforms,
+                    size: int = IMAGE_SIZE) -> np.ndarray:
+    """(n_genomes, n_refs) matrix of Chamfer distances. Each genome is
+    rendered only once, which makes diagnostics and calibration cheap."""
+    return np.array([distances_to_refs(genome_to_skeleton(g, size=size), reference_transforms)
+                     for g in genomes])
+
+
+def calibrate_similarity(grid, reference_transforms: ReferenceTransforms, k: int = 1,
+                          n_genomes: int = 30, sample_size=None, n_subsets: int = 5,
+                          seed: int = 0, size: int = IMAGE_SIZE) -> dict:
+    """Measures how random genomes on `grid` are spread in distance, so the
+    score can be re-centred and re-scaled to that spread.
+
+    Why: exp(-d/scale) with a fixed scale makes the score nearly constant when
+    all genomes have almost the same distance (Day 12 finding: ~0.74 for every
+    run), so selection cannot see differences. The returned {"mu", "sigma", "k"}
+    is used by similarity_score(calibration=...) to map distance to a logistic
+    score that is 0.5 at the average random genome and moves by about one
+    "standard random spread" per unit of sigma.
+
+    sample_size: pass the GA's per-generation reference sample size so the
+    calibration matches what the GA actually sees (a min over fewer references
+    is larger than a min over all of them).
+    """
+    import random as _random
+    from population import Population
+    pop = Population(grid, n_genomes, seed=seed).initialize()
+    D = distance_matrix(pop.genomes, reference_transforms, size=size)
+    R = D.shape[1]
+    if sample_size is None or sample_size >= R:
+        d = _knn_mean(D, k)
+        mu, sigma = float(d.mean()), float(d.std())
+    else:
+        rng = _random.Random(seed)
+        mus, sigmas = [], []
+        for _ in range(n_subsets):
+            idx = rng.sample(range(R), sample_size)
+            d = _knn_mean(D[:, idx], k)
+            mus.append(d.mean())
+            sigmas.append(d.std())   # within-subset spread: that is what selection sees
+        mu, sigma = float(np.mean(mus)), float(np.mean(sigmas))
+    return {"mu": mu, "sigma": max(sigma, 1e-3), "k": int(k)}
+
+
+def similarity_score(genome: KolamGenome, reference_transforms: ReferenceTransforms,
+                      size: int = IMAGE_SIZE, scale: float = 20.0,
+                      k: int = 1, calibration=None) -> float:
+    """Renders + preprocesses the genome, compares it against every
+    precomputed reference (via precompute_reference_transforms) using
+    Chamfer distance, and maps the distance to a [0, 1] score.
+
+    Default (k=1, calibration=None) is the original behaviour:
+    exp(-best_distance / scale). With `calibration` (from
+    calibrate_similarity) the score is logistic around the random-genome
+    average distance, which keeps differences between genomes visible.
+    `k` averages the k nearest references instead of using only the best one.
+    """
+    d = similarity_distance(genome, reference_transforms, size=size, k=k)
+    if calibration is None:
+        return float(np.exp(-d / scale))
+    z = (d - calibration["mu"]) / calibration["sigma"]
+    return float(1.0 / (1.0 + np.exp(np.clip(z, -50.0, 50.0))))
 
 
 def best_match(genome: KolamGenome, reference_transforms: ReferenceTransforms,

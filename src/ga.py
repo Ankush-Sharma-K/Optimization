@@ -21,6 +21,7 @@ from population import Population
 from selection import select, elite_indices, evaluate_population
 from crossover import crossover_pairs
 from mutation import mutate_all
+from symmetry import symmetrize_chromosome, n_free_cells
 
 Chromosome = List[int]
 
@@ -39,6 +40,7 @@ class GAConfig:
     sample_size: Optional[int] = None      # score vs a random subset of this many references per generation
     patience: Optional[int] = None         # stop early after this many generations without a new best
     seed: Optional[int] = None
+    symmetry_mode: Optional[str] = None    # None | "mirror" | "rot180": force symmetric genomes (see symmetry.py)
     fitness_kwargs: Dict = field(default_factory=dict)  # e.g. {"symmetry_weight": 0.5, ...}
 
 
@@ -109,6 +111,19 @@ def run_ga(
     rng = random.Random(cfg.seed)
     pop = Population(grid, cfg.population_size, seed=cfg.seed).initialize()
 
+    # Symmetric-by-construction: repair every chromosome so it is symmetric.
+    mode = cfg.symmetry_mode
+    rows, cols = pop.genomes[0].rows, pop.genomes[0].cols
+    chrom_len = rows * cols
+    mutation_rate = cfg.mutation_rate
+    if mode:
+        pop.replace([_genome_from_chromosome(grid, symmetrize_chromosome(c, rows, cols, mode))
+                     for c in pop.chromosomes()])
+        # Only the free cells survive the repair, so scale the per-gene mutation
+        # rate up to keep the expected number of effective flips per child unchanged.
+        base_rate = mutation_rate if mutation_rate is not None else 1.0 / chrom_len
+        mutation_rate = min(1.0, base_rate * chrom_len / n_free_cells(rows, cols, mode))
+
     refs = _reference_subset(reference_transforms, cfg.sample_size, rng)
     fit = evaluate_population(pop, refs, **cfg.fitness_kwargs)
     history = [_stats(0, pop.chromosomes(), fit)]
@@ -125,7 +140,9 @@ def run_ga(
 
         parents = select(chroms, fit, n_parents, cfg.selection_method, cfg.tournament_size, rng)
         children = crossover_pairs(parents, cfg.crossover_method, cfg.crossover_rate, rng)
-        children = mutate_all(children, cfg.mutation_rate, cfg.mutation_method, rng)[:n_children]
+        children = mutate_all(children, mutation_rate, cfg.mutation_method, rng)[:n_children]
+        if mode:
+            children = [symmetrize_chromosome(c, rows, cols, mode) for c in children]
 
         pop.replace([_genome_from_chromosome(grid, c) for c in elites + children])
 
