@@ -33,7 +33,7 @@ from ga import GAConfig, run_ga
 from fitness import symmetry_score, loop_closure_score
 from similarity import precompute_reference_transforms, best_match
 from dataset import load_processed_dataset
-from symmetry import SYMMETRY_MODES
+from symmetry import SYMMETRY_MODES, symmetrize_chromosome
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 PROCESSED_DIR = os.environ.get("KOLAM_PROCESSED_DIR", os.path.join(_HERE, "..", "data", "processed"))
@@ -45,6 +45,10 @@ FALLBACK_OPERATORS = {"crossover_method": "block", "mutation_method": "flip",
 DEFAULT_FITNESS_KWARGS = {"symmetry_weight": 1 / 3, "loop_weight": 1 / 3, "similarity_weight": 1 / 3}
 
 GRID_RANGE = (6, 16)
+# "How much may the GA change my pattern?"  label -> (start_fraction, start_spread)
+FREEDOM_CHOICES = {"Stay close to my pattern": (1.0, 0.02),
+                   "Balanced": (0.5, 0.05),
+                   "Explore freely": (0.2, 0.15)}
 SYMMETRY_CHOICES = {"Mirror (left-right + top-bottom)": "mirror",
                     "Rotation (180 degrees)": "rot180",
                     "None (let the GA find it)": None}
@@ -58,6 +62,9 @@ class RunSettings:
     generations: int = 30
     sample_size: int = 50                     # references sampled per generation
     seed: int = 0
+    start_pattern: Optional[List[int]] = None   # flat 0/1 tile list (length (grid_n-1)**2) to evolve from
+    start_fraction: float = 0.5                 # share of the population that starts from it
+    start_spread: float = 0.05                  # how much the starting copies differ from it
 
 
 @dataclass
@@ -101,6 +108,15 @@ def validate_settings(s: RunSettings):
         raise ValueError("Generations must be at least 1.")
     if s.sample_size < 1:
         raise ValueError("Reference sample size must be at least 1.")
+    if s.start_pattern is not None:
+        need = (s.grid_n - 1) ** 2
+        if len(s.start_pattern) != need:
+            raise ValueError(f"Your starting pattern has {len(s.start_pattern)} tiles, but a grid of "
+                             f"{s.grid_n} dots needs {need} ({s.grid_n - 1} x {s.grid_n - 1}).")
+        if any(g not in (0, 1) for g in s.start_pattern):
+            raise ValueError("A starting pattern may only contain 0 and 1.")
+        if not (0.0 <= s.start_fraction <= 1.0 and 0.0 <= s.start_spread <= 1.0):
+            raise ValueError("Starting-pattern fraction and spread must be between 0 and 1.")
 
 
 def _operators(config_path: str) -> Dict:
@@ -133,7 +149,9 @@ def make_ga_config(s: RunSettings, config_path: str = CONFIG_PATH) -> GAConfig:
         crossover_method=ops["crossover_method"], mutation_method=ops["mutation_method"],
         mutation_rate=float(ops["rate_mult"]) / n_tiles,
         sample_size=min(s.sample_size, 10 ** 9), seed=s.seed,
-        symmetry_mode=s.symmetry_mode, fitness_kwargs=ops["fitness_kwargs"])
+        symmetry_mode=s.symmetry_mode, fitness_kwargs=ops["fitness_kwargs"],
+        initial_chromosome=None if s.start_pattern is None else [int(g) for g in s.start_pattern],
+        initial_fraction=s.start_fraction, initial_spread=s.start_spread)
 
 
 # --------------------------------------------------------------------------
@@ -177,8 +195,44 @@ def run_evolution(refs, settings: RunSettings,
 
 
 # --------------------------------------------------------------------------
+# Starting patterns (the user's own Kolam to evolve)
+# --------------------------------------------------------------------------
+def pattern_to_rows(pattern: List[int], grid_n: int) -> List[List[int]]:
+    """Flat tile list -> list of rows (what a table editor shows)."""
+    n = grid_n - 1
+    if len(pattern) != n * n:
+        raise ValueError(f"Expected {n * n} tiles for grid {grid_n}, got {len(pattern)}.")
+    return [[int(v) for v in pattern[i * n:(i + 1) * n]] for i in range(n)]
+
+
+def rows_to_pattern(rows) -> List[int]:
+    """List of rows (0/1 or False/True) -> flat tile list."""
+    return [int(bool(v)) for row in rows for v in row]
+
+
+def random_pattern(grid_n: int, seed: int = 0) -> List[int]:
+    import random
+    rng = random.Random(seed)
+    return [rng.randint(0, 1) for _ in range((grid_n - 1) ** 2)]
+
+
+def effective_start_pattern(pattern: List[int], grid_n: int, symmetry_mode: Optional[str]) -> List[int]:
+    """The pattern the GA will really start from: with a symmetry mode on, it is rebuilt from the
+    free part of the grid (top-left quarter for mirror), so it can differ from what was drawn."""
+    n = grid_n - 1
+    return symmetrize_chromosome(list(pattern), n, n, symmetry_mode)
+
+
+# --------------------------------------------------------------------------
 # Pictures
 # --------------------------------------------------------------------------
+def render_pattern_png(pattern: List[int], grid_n: int, show_dots: bool = False, **kw) -> bytes:
+    """PNG bytes of a flat tile pattern (for previewing a starting pattern)."""
+    from genome import KolamGenome
+    g = KolamGenome(PulliGrid(n=grid_n))
+    g.from_chromosome(list(pattern))
+    return render_png(g, show_dots=show_dots, **kw)
+
 def render_png(genome, show_dots: bool = False, size_inches: float = 5.0, dpi: int = 150) -> bytes:
     """PNG bytes of the evolved Kolam (matplotlib, off-screen)."""
     import matplotlib.pyplot as plt

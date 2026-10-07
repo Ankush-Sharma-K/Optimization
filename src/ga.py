@@ -41,6 +41,9 @@ class GAConfig:
     patience: Optional[int] = None         # stop early after this many generations without a new best
     seed: Optional[int] = None
     symmetry_mode: Optional[str] = None    # None | "mirror" | "rot180": force symmetric genomes (see symmetry.py)
+    initial_chromosome: Optional[List[int]] = None  # start from this pattern instead of purely random ones
+    initial_fraction: float = 0.5          # share of the population that starts from initial_chromosome
+    initial_spread: float = 0.05           # chance each gene of a starting copy is flipped (0 = exact copies)
     fitness_kwargs: Dict = field(default_factory=dict)  # e.g. {"symmetry_weight": 0.5, ...}
 
 
@@ -59,6 +62,26 @@ def _genome_from_chromosome(grid, chromosome: Chromosome) -> KolamGenome:
     g = KolamGenome(grid)
     out = g.from_chromosome(chromosome)
     return out if isinstance(out, KolamGenome) else g  # works whether from_chromosome mutates or returns
+
+
+def apply_initial_seed(chromosomes: List[Chromosome], seed_chromosome: Chromosome,
+                       fraction: float, spread: float, rng) -> List[Chromosome]:
+    """Returns the starting population with the first round(fraction * size) members built from
+    `seed_chromosome`: the first is an exact copy, the others have each gene flipped with
+    probability `spread`. The remaining members stay as they were (random), keeping diversity."""
+    n, length = len(chromosomes), len(chromosomes[0])
+    if len(seed_chromosome) != length:
+        raise ValueError(f"initial_chromosome has {len(seed_chromosome)} genes, expected {length}")
+    if any(g not in (0, 1) for g in seed_chromosome):
+        raise ValueError("initial_chromosome may only contain 0 and 1")
+    if not 0.0 <= fraction <= 1.0 or not 0.0 <= spread <= 1.0:
+        raise ValueError("initial_fraction and initial_spread must be between 0 and 1")
+    n_seed = min(n, max(1, round(fraction * n)))
+    out = [list(c) for c in chromosomes]
+    out[0] = list(seed_chromosome)
+    for i in range(1, n_seed):
+        out[i] = [g ^ int(rng.random() < spread) for g in seed_chromosome]
+    return out
 
 
 def _reference_subset(reference_transforms, sample_size, rng):
@@ -110,6 +133,13 @@ def run_ga(
     t0 = time.time()
     rng = random.Random(cfg.seed)
     pop = Population(grid, cfg.population_size, seed=cfg.seed).initialize()
+
+    # Optional: start (part of) the population from a user-supplied pattern. A separate random
+    # stream is used, so runs without a starting pattern are unchanged.
+    if cfg.initial_chromosome is not None:
+        seed_rng = random.Random(None if cfg.seed is None else cfg.seed + 10007)
+        pop.replace([_genome_from_chromosome(grid, c) for c in apply_initial_seed(
+            pop.chromosomes(), cfg.initial_chromosome, cfg.initial_fraction, cfg.initial_spread, seed_rng)])
 
     # Symmetric-by-construction: repair every chromosome so it is symmetric.
     mode = cfg.symmetry_mode

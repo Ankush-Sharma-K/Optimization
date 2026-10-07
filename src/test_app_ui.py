@@ -15,7 +15,7 @@ class Dummy:
     def __exit__(self, *a): return False
     def __getattr__(self, name):
         def f(*a, **k):
-            calls.append((name, a, k)); return Dummy()
+            calls.append((name, a, k)); return False if name == "button" else Dummy()
         return f
 
 class State(dict):
@@ -38,6 +38,9 @@ def install():
     st.selectbox = lambda label, options, index=0, **k: (calls.append(("selectbox", (label,), k)), options[index])[1]
     st.slider = lambda label, lo, hi, value=None, **k: (calls.append(("slider", (label,), k)), overrides.get(label, value))[1]
     st.number_input = lambda label, **k: (calls.append(("number_input", (label,), k)), overrides.get(label, k.get("value")))[1]
+    st.radio = lambda label, options, index=0, **k: (calls.append(("radio", (label, tuple(options)), k)),
+                                                     overrides.get(label, options[index]))[1]
+    st.data_editor = lambda df, **k: (calls.append(("data_editor", (), k)), df)[1]
     st.button = lambda label, **k: (calls.append(("button", (label,), k)), overrides.get(label, False))[1]
     st.columns = lambda spec, **k: [Dummy() for _ in range(spec if isinstance(spec, int) else len(spec))]
     def cache_resource(*a, **k):
@@ -90,6 +93,33 @@ before = res
 check("rerun finishes", run_app() == "finished")
 check("result kept, nothing recomputed", st.session_state["result"] is before and not names("progress"))
 check("result still displayed", len(names("metric")) == 4 and len(names("image")) == 1)
+check("'last result' option offered once a result exists",
+      any("Evolve my last result" in c[1][1] for c in names("radio")))
+
+
+# 3b. draw my own pattern
+overrides.update({"Evolve a Kolam": True, "Where should evolution begin?": "Draw my own pattern"})
+check("draw-mode run finishes", run_app() == "finished")
+res2 = st.session_state["result"]
+check("pattern editor shown", len(names("data_editor")) == 1)
+check("start pattern passed to the GA", res2.settings.start_pattern is not None and len(res2.settings.start_pattern) == 144)
+check("start picture stored", st.session_state["start_png"][:4] == b"\x89PNG")
+check("start picture displayed with the result", len(names("image")) == 3 and not names("error"))
+check("freedom mapped to settings", (res2.settings.start_fraction, res2.settings.start_spread) == (0.5, 0.05))
+
+# 3c. evolve my last result
+overrides["Where should evolution begin?"] = "Evolve my last result"
+check("evolve-last run finishes", run_app() == "finished")
+res3 = st.session_state["result"]
+check("starts from the previous result", res3.settings.start_pattern == res2.chromosome and not names("error"))
+# grid mismatch -> warning + error, no crash
+overrides["Grid size (dots per side)"] = 11
+check("grid mismatch stops with an error", run_app() == "stopped" and len(names("error")) == 1)
+check("grid mismatch warning shown", any("last result used" in str(c[1]) for c in names("warning")))
+overrides.pop("Grid size (dots per side)")
+overrides.update({"Evolve a Kolam": False, "Where should evolution begin?": "Random start"})
+run_app()
+check("result survives mode changes", st.session_state["result"] is res3)
 
 # 4. even grid + mirror shows the explanation
 overrides.update({"Evolve a Kolam": False, "Grid size (dots per side)": 12})
