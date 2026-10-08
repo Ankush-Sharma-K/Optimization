@@ -304,6 +304,48 @@ CLI: `--quick`, `--seeds`, `--generations`, `--pop`, `--sample`, `--grid-n`, `--
 | `SYMMETRY_CHOICES` | dict | UI label -> mode (`"mirror"`, `"rot180"`, `None`) |
 | `PROCESSED_DIR`, `CONFIG_PATH` | constants | overridable via `KOLAM_PROCESSED_DIR`, `KOLAM_CONFIG_PATH` |
 
+### Day 13c additions
+
+| Name | File | Notes |
+|---|---|---|
+| `GAConfig.initial_chromosome / initial_fraction / initial_spread` | `ga.py` | start from a user pattern (default `None`) |
+| `apply_initial_seed(chromosomes, seed, fraction, spread, rng)` | `ga.py` | first member exact copy, others flipped with prob. `spread` |
+| `RunSettings.start_pattern / start_fraction / start_spread` | `app_core.py` | validated in `validate_settings` |
+| `FREEDOM_CHOICES` | `app_core.py` | label -> (fraction, spread) |
+| `pattern_to_rows`, `rows_to_pattern`, `random_pattern`, `effective_start_pattern`, `render_pattern_png` | `app_core.py` | editor helpers / preview |
+| tests | `test_seeding.py`, `test_app_ui.py` | 30 and 29 checks |
+
+### Fast mode additions
+
+| Name | File | Notes |
+|---|---|---|
+| `fitness(..., similarity_weight=0)` | `fitness.py` | skips similarity (and rendering) when the weight is 0 |
+| `RunSettings.fast_mode` | `app_core.py` | default True; evolve on symmetry + loop closure only |
+| `FAST_FITNESS_KWARGS` | `app_core.py` | `{symmetry 0.5, loop 0.5, similarity 0.0}` |
+| `EvolutionResult.best_fitness` | `app_core.py` | now always the full formula vs ALL references |
+
+### Day 13c-5 additions
+
+| Name | File | Notes |
+|---|---|---|
+| `run_variants(refs, settings, n=6, on_progress)` | `app_core.py` | n consecutive seeds, fast mode only, n in 1..12 |
+| `match_png(result)` | `app_core.py` | PNG of the closest reference's skeleton |
+| `build_settings()`, `show_result(...)` | `app.py` | helpers shared by the Evolve / Variants buttons |
+
+### Day 13c-3 additions
+
+| Name | File | Notes |
+|---|---|---|
+| `genome_to_skeleton_fast(genome, size, line_width)` | `similarity.py` | PIL drawing, ~150x faster than `genome_to_skeleton` |
+| `overlap_score(genome_sk, ref_sk, ref_dt, tolerance)` | `similarity.py` | F1 of line pixels within tolerance |
+| `prepare_target(gray, grid_n, size)` | `similarity.py` | uploaded picture -> aligned skeleton; raises `ValueError` |
+| `overlap_png_array(genome_sk, target_sk)` | `similarity.py` | RGB overlay array |
+| `similarity_score(..., mode="overlap", tolerance, fast_render)` | `similarity.py` | `mode` is `"chamfer"` (default) or `"overlap"` |
+| `fitness(..., similarity_mode, similarity_tolerance, similarity_fast_render)` | `fitness.py` | passed through to `similarity_score` |
+| `RunSettings.target_image / target_weight / target_tolerance` | `app_core.py` | imitation mode when `target_image` is set |
+| `load_target`, `auto_tolerance`, `target_fitness_kwargs`, `overlay_png` | `app_core.py` | helpers |
+| `EvolutionResult.target_skeleton / target_score / target_baseline` | `app_core.py` | imitation results |
+
 ---
 
 ## 4. Naming Conventions (keep consistent going forward)
@@ -335,9 +377,10 @@ CLI: `--quick`, `--seeds`, `--generations`, `--pop`, `--sample`, `--grid-n`, `--
 
 ## 5. Currently Pending / Next Step
 
-**Check 13b:** `pip install streamlit` (1.30+), then from `src/`: `streamlit run app.py`; report errors or odd-looking screens.
-**Day 13c:** closest-real-Kolam panel (reference skeleton drawn from `EvolutionResult.match_skeleton`), seed gallery, polish.
-Then **Day 14** deployment, **Day 15** polish/testing.
+**13c-4 (next):** `app.py` UI for imitation: image upload, preview of the prepared target, "Imitate this image" mode (no symmetry by default,
+about 60 generations, picture-strictness slider), overlay picture and the score vs random baseline.
+Then **Day 14** deployment, **Day 15** polish/testing/report. Still to check in the real app: 13c-5 was confirmed working; imitation not yet tried on real Kolam pictures.
 
 **Known limitations:** (1) genomes are far simpler than the dataset's fractal Kolams (Truchet-like, no dots);
-(2) pixel-distance similarity mostly measures dot density, not shape; (3) loop closure tops out near 0.85 (border strands).
+(2) pixel-distance similarity to the *dataset* mostly measures dot density, not shape; imitation follows rough line positions only;
+(3) loop closure tops out near 0.85 (border strands); (4) in fast mode the dataset only supplies the closest-Kolam match and distance.

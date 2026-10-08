@@ -15,7 +15,7 @@ class Dummy:
     def __exit__(self, *a): return False
     def __getattr__(self, name):
         def f(*a, **k):
-            calls.append((name, a, k)); return False if name == "button" else Dummy()
+            calls.append((name, a, k)); return bool(overrides.get(a[0], False)) if name == "button" and a else Dummy()
         return f
 
 class State(dict):
@@ -49,6 +49,8 @@ def install():
     st.cache_resource = cache_resource
     def stop(): calls.append(("stop", (), {})); raise Stop()
     st.stop = stop
+    def rerun(): calls.append(("rerun", (), {})); raise Stop()
+    st.rerun = rerun
     sys.modules["streamlit"] = st
     return st
 
@@ -87,14 +89,14 @@ check("progress bar updated every generation + start/done", len(prog) >= 6 + 2 a
 check("live chart updated", len(names("line_chart")) >= 6)
 check("no error raised", not names("error"))
 check("4 metrics + 2 download buttons shown", len(names("metric")) == 4 and len(names("download_button")) == 2)
-check("image shown", len(names("image")) == 1)
+check("evolved + closest-Kolam images shown", len(names("image")) == 2)
 
 # 3. rerun (e.g. after clicking a download button): result survives, GA not re-run
 overrides["Evolve a Kolam"] = False
 before = res
 check("rerun finishes", run_app() == "finished")
 check("result kept, nothing recomputed", st.session_state["result"] is before and not names("progress"))
-check("result still displayed", len(names("metric")) == 4 and len(names("image")) == 1)
+check("result still displayed", len(names("metric")) == 4 and len(names("image")) == 2)
 check("'last result' option offered once a result exists",
       any("Evolve my last result" in c[1][1] for c in names("radio")))
 
@@ -106,7 +108,7 @@ res2 = st.session_state["result"]
 check("pattern editor shown", len(names("data_editor")) == 1)
 check("start pattern passed to the GA", res2.settings.start_pattern is not None and len(res2.settings.start_pattern) == 144)
 check("start picture stored", st.session_state["start_png"][:4] == b"\x89PNG")
-check("start picture displayed with the result", len(names("image")) == 3 and not names("error"))
+check("start picture displayed with the result", len(names("image")) == 4 and not names("error"))
 check("freedom mapped to settings", (res2.settings.start_fraction, res2.settings.start_spread) == (0.5, 0.05))
 
 # 3c. evolve my last result
@@ -122,6 +124,30 @@ overrides.pop("Grid size (dots per side)")
 overrides.update({"Evolve a Kolam": False, "Where should evolution begin?": "Random start"})
 run_app()
 check("result survives mode changes", st.session_state["result"] is res3)
+
+# 3d. closest real Kolam panel + variants gallery
+run_app()
+check("closest-Kolam panel heading shown", any("Closest real Kolam" in str(c[1]) for c in names("subheader")))
+check("closest-Kolam picture stored and shown", st.session_state["match_png"][:4] == b"\x89PNG"
+      and any("line drawing" in str(c[2].get("caption", "")) for c in names("image")))
+overrides.update({"Make 6 variants": True, "Evolve a Kolam": False})
+check("variants run finishes", run_app() == "finished")
+gal = st.session_state.get("gallery")
+check("gallery holds 6 variants", gal is not None and len(gal) == 6 and not names("error"))
+overrides["Make 6 variants"] = False
+run_app()
+check("gallery displayed: 6 images + closest + evolved (+ start)", len(names("image")) >= 8)
+before_pick = st.session_state["result"]
+overrides["Show this one"] = True
+check("'Show this one' swaps the result and reruns", run_app() == "stopped" and st.session_state["result"] is gal[0]["result"]
+      and st.session_state["result"] is not before_pick)
+overrides.pop("Show this one")
+overrides["Make 6 variants"] = False
+overrides["Fast mode (recommended)"] = False
+overrides["Make 6 variants"] = True
+run_app()
+check("variants unavailable without fast mode (button disabled)", any(c[2].get("disabled") is True for c in names("button")))
+overrides.pop("Fast mode (recommended)"); overrides["Make 6 variants"] = False
 
 # 4. even grid + mirror shows the explanation
 overrides.update({"Evolve a Kolam": False, "Grid size (dots per side)": 12})

@@ -1048,8 +1048,12 @@ backup is created. Day 12 itself is finished and does not need to be re-run.
 | Phase | Content | Status |
 |---|---|---|
 | 13a | `app_core.py` (all logic, no Streamlit) + `test_app_core.py` | DONE (32 checks pass on real data) |
-| 13b | `app.py`: sidebar controls, Run button, live progress bar + ETA + fitness curve, result image, metrics, PNG/JSON download | CODE READY (your first `streamlit run app.py` pending) |
-| 13c | "Closest real Kolam" panel, seed gallery for variety, error messages, session state, final polish | after 13b |
+| 13b | `app.py`: sidebar controls, Run button, live progress bar + ETA + fitness curve, result image, metrics, PNG/JSON download | DONE (you ran it; it worked) |
+| 13c-1 | Start from a given pattern: `ga.py` (`initial_chromosome`, `apply_initial_seed`), `app_core.py` helpers + `test_seeding.py` | DONE (30 checks pass) |
+| 13c-2 | `app.py`: "Starting point" controls (random / draw my own pattern in a tick-box table / evolve my last result), freedom setting, preview, "where it started" picture | CODE READY (needs your first real run) |
+| 13c-3 | Core for imitating an uploaded Kolam image: fast renderer, overlap score, picture alignment, `app_core` wiring + `test_target.py` | DONE (21 checks pass) |
+| 13c-4 | `app.py`: image upload, processed-target preview, "Imitate this image" mode, target vs result | after 13c-3 |
+| 13c-5 | "Closest real Kolam" panel + 6-variant seed gallery | CODE READY (first real run pending); final polish moves to Day 15 |
 
 ### 13a — app_core.py
 - `RunSettings` (grid_n 13, symmetry_mode "mirror", pop 30, gens 30, sample 50, seed 0), `validate_settings`,
@@ -1072,3 +1076,68 @@ backup is created. Day 12 itself is finished and does not need to be re-run.
 - Tested with a fake `streamlit` module (`test_app_ui.py`, 18 checks): first visit, a full run, rerun keeps the result, even-grid hint,
   missing data. NOT tested: how the page actually looks, and Streamlit version differences (use Streamlit 1.30 or newer).
 - Not yet in the app: "closest real Kolam" picture and seed gallery (Phase 13c).
+
+### 13c-1 / 13c-2 — Start from your own pattern (added after you asked to give the app a Kolam to evolve)
+- `GAConfig` gained `initial_chromosome`, `initial_fraction` (share of the population that starts from it, rest stays random)
+  and `initial_spread` (chance each tile of a starting copy is flipped). Default `None` = old behaviour; a separate random
+  stream is used, so runs without a pattern give identical results to before.
+- `app_core.py`: `RunSettings.start_pattern/start_fraction/start_spread` (validated: right number of tiles for the grid, only 0/1),
+  `FREEDOM_CHOICES` (Stay close 1.0/0.02, Balanced 0.5/0.05, Explore freely 0.2/0.15), `pattern_to_rows`, `rows_to_pattern`,
+  `random_pattern`, `effective_start_pattern` (what the GA really starts from: with mirror symmetry the drawn pattern is rebuilt from
+  its top-left quarter), `render_pattern_png`.
+- `app.py`: radio "Where should evolution begin?" (Random start / Draw my own pattern / Evolve my last result), editable tick-box table
+  with Randomise / All unticked / Checkerboard buttons and a live preview, "How much may it change my pattern?" selector, and a
+  "Where it started" picture beside the result.
+- Tested: `test_seeding.py` (30 checks; e.g. a run seeded with an exact pattern changed 0 of 144 tiles vs 66 for a random run) and
+  `test_app_ui.py` (29 checks with the fake Streamlit). NOT tested: how the tick-box table behaves in real Streamlit (needs Streamlit 1.23+).
+- Limits to keep in mind: the GA still rewards symmetry/loops, and mirror mode rebuilds the pattern from one quarter.
+
+### Speed: "fast mode" (added because a run took minutes)
+**Where the time goes** (profiled at grid 13, one pattern): rendering + skeletonising the picture **519 ms** (my machine; yours is
+faster), comparing it with 50 references 16 ms, distance transform 5 ms, loop-closure score 2.75 ms, symmetry score 0.08 ms.
+So rendering for the similarity term is >95% of the run time, while symmetry and loop closure need no picture at all.
+
+**Change:** `fitness()` skips the similarity term (and the rendering) when `similarity_weight == 0`. `RunSettings.fast_mode`
+(default True) evolves with weights symmetry 0.5 / loop 0.5 / similarity 0; the distance to the closest real Kolam and a full-formula
+fitness against ALL references are computed once at the end (`run_evolution`). Unticking "Fast mode" in Advanced restores the old
+behaviour (about 50x slower).
+**Measured (stand-in references, grid 13, mirror, pop 12, 8 generations, same seed):** full 65.0 s vs fast 1.2 s (**53x**);
+symmetry 1.000 vs 1.000, loop closure 0.847 vs 0.847, fitness 0.910 vs 0.909, d_min 2.503 vs 2.540 px; 20 of 144 tiles differ
+(equally good pattern, different tiles because similarity no longer breaks ties).
+**Why it is safe:** on Day 12 changing the similarity scale or weights never changed the winning pattern, and at grid 12-13
+different patterns differ by only ~0.01-0.02 px in distance. **Report note:** in fast mode the reference dataset no longer influences
+the evolution; it is used for the final "closest real Kolam" and distance. This makes explicit what Day 12/12.5 already showed.
+Image imitation (13c-3) will need the slow picture comparison for its target, so it may need a faster renderer.
+Tests: `test_app_core.py` 38 checks, `test_app_ui.py` and `test_seeding.py` all pass.
+
+### 13c-5 — Closest real Kolam panel + variants gallery (code ready)
+- **Closest real Kolam:** the result now shows the dataset image closest to the evolved pattern (its line drawing, drawn from the skeleton
+  kept in memory, so no raw images are needed), its name and distance, and a caption saying the match mostly reflects line density.
+- **Variants:** sidebar button "Make 6 variants" runs the same settings with seeds seed..seed+5 (fast mode only; the button is disabled
+  otherwise) and shows them in a 3x2 gallery with loop closure and distance; **Show this one** loads a variant as the current result
+  (so it can also be used by "Evolve my last result"). `app_core.run_variants`, `app_core.match_png`.
+- `app.py` refactored: `build_settings()` and `show_result()` helpers shared by the Evolve and Variants buttons.
+- Tests: `test_app_core.py` 44 checks, `test_app_ui.py` 39 checks, `test_seeding.py` 30 checks all pass (fake Streamlit; NOT tested in real
+  Streamlit: layout, `st.rerun` needs Streamlit 1.27+).
+
+### 13c-3 — Imitating an uploaded picture: core (done)
+- `similarity.py`: `genome_to_skeleton_fast` (draws the pattern with PIL instead of matplotlib, ~150x faster, same skeleton: F1 1.000 vs the matplotlib render
+  at 2 px), `overlap_score` (F1 of line pixels within a tolerance of each other; unlike Chamfer distance it reacts to WHERE lines are),
+  `similarity_score(mode="overlap", tolerance, fast_render)`, `prepare_target(gray, grid_n)` (threshold -> crop to the drawn lines -> centre ->
+  scale to the pattern's drawing area -> skeletonize, so margins/zoom/polarity of the upload do not matter), `overlap_png_array`.
+  `fitness()` passes `similarity_mode`, `similarity_tolerance`, `similarity_fast_render`.
+- `app_core.py`: `RunSettings.target_image` (file bytes), `target_weight` (default 0.6), `target_tolerance` (None = automatic), `load_target`,
+  `auto_tolerance`, `target_fitness_kwargs`, `overlay_png` (target grey, evolved pattern red); `EvolutionResult.target_skeleton/target_score/target_baseline`.
+  In imitation mode the GA compares against the picture only (fast mode is ignored); the dataset still supplies the closest-real-Kolam panel.
+  Weights: picture `target_weight`, symmetry and loops share the rest.
+- **Findings from testing:**
+  1. The comparison tolerance must be small. At 4 px, patterns scored 0.99 whatever they looked like (the two tile types' arcs are only ~0.25 tile apart);
+     the automatic tolerance is 0.1 tile (1.5 px at grid 13), where the picture's own pattern scores 0.997 and random patterns ~0.79.
+     Defaults in `similarity.py`/`fitness.py` changed from 4.0 to 2.0 (only used by the new overlap mode).
+  2. Recovery test (the picture is a render of a hidden known pattern, grid 13, no symmetry, pure imitation): pop 30 x 60 generations recovered **94% of the tiles
+     in 13 s** (score 0.971 vs 0.771 for random patterns); pop 24 x 25 generations only 76%. A higher mutation rate did not help. So imitation mode needs
+     about 60 generations (the UI should default to that).
+  3. With balanced weights (0.6 picture) the result keeps symmetry ~0.7 and loops ~0.7 and matches the picture less (74-88% depending on the test) by design.
+- **Limit:** this recovers a pattern that is made of these tiles. A real fractal Kolam is not, so expect scores well below 0.97 and a pattern that follows
+  the picture's rough line positions and directions, not a copy; `target_baseline` is reported so the improvement can be judged.
+- Tests: `test_target.py` 21 checks, `test_app_core.py` 44, `test_app_ui.py` 39, `test_seeding.py` 30 all pass. Not yet tested on real Kolam pictures or in the UI (13c-4).

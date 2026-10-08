@@ -87,6 +87,21 @@ check("same seed -> same result", r2.chromosome == r.chromosome)
 sm = ac.result_summary(r)
 check("summary is JSON-serialisable", json.loads(json.dumps(sm))["settings"]["grid_n"] == 13)
 
+# --- variants + closest-Kolam picture
+seen = []
+vs = ac.run_variants(refs, ac.RunSettings(grid_n=13, population_size=6, generations=2, sample_size=8, seed=10), n=3,
+                     on_progress=lambda d, t, res: seen.append((d, t)))
+check("run_variants returns n results with consecutive seeds", [v.settings.seed for v in vs] == [10, 11, 12])
+check("variants report progress", seen == [(1, 3), (2, 3), (3, 3)])
+check("variants are symmetric and differ from each other",
+      all(abs(v.symmetry - 1.0) < 1e-9 for v in vs) and len({tuple(v.chromosome) for v in vs}) >= 2)
+for bad_kw in (dict(settings=ac.RunSettings(fast_mode=False), n=3), dict(settings=ac.RunSettings(), n=0)):
+    try:
+        ac.run_variants(refs, **bad_kw); check(f"run_variants rejects {bad_kw['n']} / fast={bad_kw['settings'].fast_mode}", False)
+    except ValueError:
+        check(f"run_variants rejects n={bad_kw['n']} fast={bad_kw['settings'].fast_mode}", True)
+check("match_png is a PNG", Image.open(io.BytesIO(ac.match_png(vs[0]))).format == "PNG")
+
 # --- pictures
 png = ac.render_png(r.genome)
 im = Image.open(io.BytesIO(png)); check("render_png is a PNG image", im.format == "PNG" and im.size[0] > 100)

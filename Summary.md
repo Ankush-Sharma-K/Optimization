@@ -807,3 +807,14 @@ Experiments and tuning with `run_ga()`: operator choices, rates, tournament size
 file with a fallback, `run_evolution` with a progress callback, PNG rendering, ETA); 32 tests pass on stand-in data.
 **13b (code ready):** `app.py` with sidebar controls, live progress and fitness chart, result image, metrics and downloads; tested with a fake Streamlit, first real `streamlit run` pending.
 **13c pending:** closest-real-Kolam panel, seed gallery and polish.
+
+**13c-1/13c-2 (code ready):** you can now give the app a starting pattern (draw it in a tick-box table, or evolve the last result) and
+choose how much the GA may change it. Image imitation (13c-3/4) and the closest-Kolam panel (13c-5) are still to come.
+
+**Fast mode:** profiling showed >95% of a run is rendering pictures for the similarity term. Since similarity never changed the winner,
+the app now evolves on symmetry + loop closure only (53x faster on a test: 65 s -> 1.2 s, same scores) and measures similarity once at the end.
+
+**13c-5 (code ready):** the result now shows the closest real Kolam from the dataset, and "Make 6 variants" shows six seeds side by side.
+
+**13c-3 (done):** core for imitating an uploaded picture: a fast pattern renderer, a line-overlap score with an automatic tolerance, alignment of the uploaded picture,
+and wiring into `app_core`. Tested by recovering a known hidden pattern (94% of tiles in 13 s). UI comes in 13c-4.

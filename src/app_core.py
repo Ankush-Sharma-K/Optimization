@@ -23,7 +23,7 @@ import time
 
 import matplotlib
 matplotlib.use("Agg")   # off-screen drawing; must be set before pyplot is first used (Streamlit runs in a worker thread)
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace as dc_replace
 from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -31,7 +31,8 @@ import numpy as np
 from grid import PulliGrid
 from ga import GAConfig, run_ga
 from fitness import fitness, symmetry_score, loop_closure_score
-from similarity import precompute_reference_transforms, best_match
+from similarity import (precompute_reference_transforms, best_match, prepare_target, overlap_score,
+                        genome_to_skeleton_fast, overlap_png_array)
 from dataset import load_processed_dataset
 from symmetry import SYMMETRY_MODES, symmetrize_chromosome
 
@@ -70,6 +71,9 @@ class RunSettings:
     start_fraction: float = 0.5                 # share of the population that starts from it
     start_spread: float = 0.05                  # how much the starting copies differ from it
     fast_mode: bool = True                      # True: skip the slow image comparison while evolving
+    target_image: Optional[bytes] = None        # an uploaded picture of a Kolam to imitate (file bytes)
+    target_weight: float = 0.6                  # how much matching that picture counts in the score (0-1)
+    target_tolerance: Optional[float] = None    # pixels of slack when comparing lines; None = automatic (0.1 tile)
 
 
 @dataclass
@@ -85,6 +89,9 @@ class EvolutionResult:
     match_skeleton: Optional[np.ndarray]      # skeleton of that reference (bool array)
     history: List[Dict] = field(default_factory=list)   # per generation: generation, best, mean, diversity
     elapsed_s: float = 0.0
+    target_skeleton: Optional[np.ndarray] = None  # prepared target lines (imitation mode only)
+    target_score: Optional[float] = None          # overlap F1 with the target, 0-1 (imitation mode only)
+    target_baseline: Optional[float] = None       # average F1 of random patterns, for comparison
 
 
 # --------------------------------------------------------------------------
@@ -113,6 +120,11 @@ def validate_settings(s: RunSettings):
         raise ValueError("Generations must be at least 1.")
     if s.sample_size < 1:
         raise ValueError("Reference sample size must be at least 1.")
+    if s.target_image is not None:
+        if not 0.0 < s.target_weight <= 1.0:
+            raise ValueError("The picture weight must be above 0 and at most 1.")
+        if s.target_tolerance is not None and s.target_tolerance < 1:
+            raise ValueError("Line tolerance must be at least 1 pixel.")
     if s.start_pattern is not None:
         need = (s.grid_n - 1) ** 2
         if len(s.start_pattern) != need:
@@ -141,6 +153,35 @@ def _operators(config_path: str) -> Dict:
     return ops
 
 
+def load_target(image_bytes: bytes, grid_n: int):
+    """Uploaded picture bytes -> (skeleton, reference-transform list with one entry). Raises ValueError."""
+    from PIL import Image, UnidentifiedImageError
+    try:
+        gray = np.array(Image.open(io.BytesIO(image_bytes)).convert("L"))
+    except (UnidentifiedImageError, OSError):
+        raise ValueError("Could not read the image. Please upload a PNG or JPG picture.")
+    skeleton = prepare_target(gray, grid_n)
+    return skeleton, precompute_reference_transforms([("uploaded image", skeleton)])
+
+
+def auto_tolerance(grid_n: int, size: int = 256) -> float:
+    """Pixels of slack for comparing lines: 0.1 of a tile. Measured on Day 13: with more slack the two tile types
+    (whose arcs are only ~0.25 tile apart) look identical, so every pattern would score about the same."""
+    return max(1.0, round(0.10 * 0.77 * size / grid_n, 1))
+
+
+def _tolerance(s: RunSettings) -> float:
+    return float(s.target_tolerance) if s.target_tolerance is not None else auto_tolerance(s.grid_n)
+
+
+def target_fitness_kwargs(s: RunSettings) -> Dict:
+    """Imitation mode: symmetry and loops share what the picture does not take; similarity = overlap with the picture."""
+    rest = (1.0 - s.target_weight) / 2.0
+    return {"symmetry_weight": rest, "loop_weight": rest, "similarity_weight": s.target_weight,
+            "similarity_mode": "overlap", "similarity_tolerance": _tolerance(s),
+            "similarity_fast_render": True}
+
+
 def make_ga_config(s: RunSettings, config_path: str = CONFIG_PATH) -> GAConfig:
     """GAConfig from the user's settings + the Day 12 tuned operators.
     The mutation rate is 'rate_mult / number of tiles', as tuned on Day 12."""
@@ -155,7 +196,8 @@ def make_ga_config(s: RunSettings, config_path: str = CONFIG_PATH) -> GAConfig:
         mutation_rate=float(ops["rate_mult"]) / n_tiles,
         sample_size=min(s.sample_size, 10 ** 9), seed=s.seed,
         symmetry_mode=s.symmetry_mode,
-        fitness_kwargs=dict(FAST_FITNESS_KWARGS) if s.fast_mode else ops["fitness_kwargs"],
+        fitness_kwargs=(target_fitness_kwargs(s) if s.target_image is not None
+                        else dict(FAST_FITNESS_KWARGS) if s.fast_mode else ops["fitness_kwargs"]),
         initial_chromosome=None if s.start_pattern is None else [int(g) for g in s.start_pattern],
         initial_fraction=s.start_fraction, initial_spread=s.start_spread)
 
@@ -178,8 +220,11 @@ def run_evolution(refs, settings: RunSettings,
     on_progress(done_generations, total_generations, stats, elapsed_s) is called
     after every generation (generation 0 counts as done=1 of total+1)."""
     cfg = make_ga_config(settings, config_path)
+    target_skeleton, ga_refs = None, refs
+    if settings.target_image is not None:      # imitation: the GA compares against the uploaded picture only
+        target_skeleton, ga_refs = load_target(settings.target_image, settings.grid_n)
     # keep the sample size sensible when the dataset is small
-    cfg.sample_size = min(cfg.sample_size, len(refs))
+    cfg.sample_size = min(cfg.sample_size, len(ga_refs))
     total = settings.generations + 1          # generation 0 .. generations
     t0 = time.time()
     history: List[Dict] = []
@@ -189,17 +234,49 @@ def run_evolution(refs, settings: RunSettings,
         if on_progress:
             on_progress(len(history), total, history[-1], time.time() - t0)
 
-    res = run_ga(PulliGrid(n=settings.grid_n), refs, cfg, callback=cb)
+    res = run_ga(PulliGrid(n=settings.grid_n), ga_refs, cfg, callback=cb)
     g = res.best_genome
     name, d_min = best_match(g, refs)
     # one full-formula score against ALL references, so the number is comparable between modes
     final_fitness = fitness(g, refs, **_operators(config_path)["fitness_kwargs"])
     skeleton = next((sk for n, sk, _dt in refs if n == name), None)
+    target_score = target_baseline = None
+    if target_skeleton is not None:
+        t_dt = ga_refs[0][2]
+        target_score = float(overlap_score(genome_to_skeleton_fast(g), target_skeleton, t_dt, _tolerance(settings)))
+        from population import Population
+        rand = Population(PulliGrid(n=settings.grid_n), 20, seed=12345).initialize().genomes
+        target_baseline = float(np.mean([overlap_score(genome_to_skeleton_fast(x), target_skeleton, t_dt,
+                                                       _tolerance(settings)) for x in rand]))
     return EvolutionResult(
         settings=settings, genome=g, chromosome=g.to_chromosome(), best_fitness=float(final_fitness),
         symmetry=float(symmetry_score(g)), loop_closure=float(loop_closure_score(g)),
         d_min=float(d_min), match_name=name, match_skeleton=skeleton, history=history,
-        elapsed_s=time.time() - t0)
+        elapsed_s=time.time() - t0, target_skeleton=target_skeleton, target_score=target_score,
+        target_baseline=target_baseline)
+
+
+def run_variants(refs, settings: RunSettings, n: int = 6,
+                 on_progress: Optional[Callable[[int, int, "EvolutionResult"], None]] = None,
+                 config_path: str = CONFIG_PATH) -> List["EvolutionResult"]:
+    """Runs the same settings with n consecutive seeds (settings.seed, seed+1, ...) so the user can compare
+    different patterns of similar quality. Fast mode only: with the slow picture comparison this would
+    take far too long. on_progress(done, n, result) is called after each variant."""
+    if not settings.fast_mode:
+        raise ValueError("Variants need fast mode (otherwise it would take hours).")
+    if not 1 <= n <= 12:
+        raise ValueError("Choose between 1 and 12 variants.")
+    out = []
+    for i in range(n):
+        out.append(run_evolution(refs, dc_replace(settings, seed=settings.seed + i), config_path=config_path))
+        if on_progress:
+            on_progress(i + 1, n, out[-1])
+    return out
+
+
+def match_png(result: "EvolutionResult") -> Optional[bytes]:
+    """PNG of the closest real Kolam's skeleton (None if unknown)."""
+    return skeleton_png(result.match_skeleton) if result.match_skeleton is not None else None
 
 
 # --------------------------------------------------------------------------
@@ -265,8 +342,21 @@ def skeleton_png(skeleton: np.ndarray) -> bytes:
     return buf.getvalue()
 
 
+def overlay_png(result: "EvolutionResult") -> Optional[bytes]:
+    """PNG: the uploaded target (grey) with the evolved pattern drawn over it (red) -- imitation mode only."""
+    if result.target_skeleton is None:
+        return None
+    from PIL import Image
+    img = Image.fromarray(overlap_png_array(genome_to_skeleton_fast(result.genome), result.target_skeleton))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def result_summary(r: EvolutionResult) -> Dict:
     """Plain dict for display / JSON download (no big arrays)."""
-    return {"settings": asdict(r.settings), "best_fitness": r.best_fitness, "symmetry": r.symmetry,
+    st = asdict(r.settings)
+    st["target_image"] = r.settings.target_image is not None      # bytes are not JSON-serialisable
+    return {"settings": st, "target_score": r.target_score, "target_baseline": r.target_baseline, "best_fitness": r.best_fitness, "symmetry": r.symmetry,
             "loop_closure": r.loop_closure, "d_min_px": r.d_min, "closest_reference": r.match_name,
             "seconds": round(r.elapsed_s, 1), "chromosome": r.chromosome}

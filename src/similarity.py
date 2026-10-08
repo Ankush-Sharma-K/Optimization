@@ -36,10 +36,12 @@ from typing import List, Tuple
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import distance_transform_edt
-from PIL import Image
+from PIL import Image, ImageDraw
+from skimage.filters import threshold_otsu
+from skimage.morphology import skeletonize
 
 from genome import KolamGenome
-from renderer import render_genome
+from renderer import render_genome, _cell_arcs
 from dataset import preprocess_image, IMAGE_SIZE
 
 ReferenceTransforms = List[Tuple[str, np.ndarray, np.ndarray]]  # (name, skeleton, distance_transform)
@@ -60,6 +62,91 @@ def genome_to_skeleton(genome: KolamGenome, size: int = IMAGE_SIZE) -> np.ndarra
 
     gray = np.array(Image.open(buf).convert("L"))
     return preprocess_image(gray, size=size)
+
+
+# Where the pattern sits inside the matplotlib render, as fractions of the image side (measured on Day 13:
+# bounding boxes agree with genome_to_skeleton to within 1 px).
+_FRAME_LEFT, _FRAME_TOP, _FRAME_SIDE = 0.1275, 0.12, 0.77
+
+
+def genome_to_skeleton_fast(genome: KolamGenome, size: int = IMAGE_SIZE, line_width: int = 2) -> np.ndarray:
+    """Same result as genome_to_skeleton but drawn directly with PIL instead of matplotlib: about 150x faster
+    (1-2 ms instead of 200-500 ms). On random genomes the two skeletons agree perfectly at 2 px tolerance
+    (F1 = 1.000), so it can replace the matplotlib route wherever pixel-exactness is not needed."""
+    g = genome.grid
+    min_x, min_y, max_x, max_y = g.bounding_box()
+    pad = g.spacing * 0.5
+    x0, y0 = min_x - pad, min_y - pad
+    scale = _FRAME_SIDE * size / (max(max_x - min_x, max_y - min_y) + 2 * pad)
+    img = Image.new("L", (size, size), 255)
+    draw = ImageDraw.Draw(img)
+    for i in range(genome.rows):
+        for j in range(genome.cols):
+            tl, tr, bl, br = genome.cell_corners(i, j)
+            r = (tr[0] - tl[0]) * scale / 2
+            for (cx, cy), t1, t2 in _cell_arcs(tl, tr, bl, br, genome.get_tile(i, j)):
+                px, py = (cx - x0) * scale + _FRAME_LEFT * size, (cy - y0) * scale + _FRAME_TOP * size
+                draw.arc([px - r, py - r, px + r, py + r], t1, t2, fill=0, width=line_width)
+    return skeletonize(np.asarray(img) < 128)
+
+
+def prepare_target(gray: np.ndarray, grid_n: int, size: int = IMAGE_SIZE) -> np.ndarray:
+    """Turns an uploaded picture of a Kolam (2D uint8 grayscale array) into a 1-pixel skeleton that is lined up
+    with the area a genome of `grid_n` dots covers, so overlap_score compares like with like.
+
+    Steps: threshold (Otsu; the minority colour is taken as the lines, so dark-on-light and light-on-dark both work)
+    -> crop to the drawn lines -> centre in a square -> scale to the genome's drawing area -> skeletonize.
+    Raises ValueError if no lines are found."""
+    arr = np.asarray(gray, dtype=np.uint8)
+    if arr.ndim != 2 or arr.min() == arr.max():
+        raise ValueError("The image has no visible drawing.")
+    lines = arr < threshold_otsu(arr)
+    if lines.mean() > 0.5:          # more than half dark: the lines are the light part
+        lines = ~lines
+    ys, xs = np.where(lines)
+    if len(ys) < 20:
+        raise ValueError("Could not find a drawing in the image.")
+    crop = lines[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    h, w = crop.shape
+    side_src = max(h, w)
+    square = np.zeros((side_src, side_src), dtype=bool)
+    square[(side_src - h) // 2:(side_src - h) // 2 + h, (side_src - w) // 2:(side_src - w) // 2 + w] = crop
+
+    n_cells = grid_n - 1                       # tiles per side; the drawing spans these, minus the half-cell margins
+    frame = _FRAME_SIDE * size
+    side = max(8, int(round(frame * n_cells / (n_cells + 1))))
+    margin = frame / (n_cells + 1) / 2
+    left, top = int(round(_FRAME_LEFT * size + margin)), int(round(_FRAME_TOP * size + margin))
+    small = Image.fromarray((square * 255).astype(np.uint8)).resize((side, side), Image.LANCZOS)
+    canvas = np.zeros((size, size), dtype=bool)
+    canvas[top:top + side, left:left + side] = np.asarray(small) > 60
+    return skeletonize(canvas)
+
+
+def overlap_png_array(genome_skeleton: np.ndarray, target_skeleton: np.ndarray) -> np.ndarray:
+    """RGB picture: target lines in grey, the evolved pattern's lines in red (purple where they agree)."""
+    from scipy.ndimage import binary_dilation
+    g = binary_dilation(genome_skeleton, iterations=1)
+    t = binary_dilation(target_skeleton, iterations=1)
+    img = np.full(g.shape + (3,), 255, dtype=np.uint8)
+    img[t] = (170, 170, 170)
+    img[g] = (200, 40, 40)
+    img[g & t] = (120, 40, 160)
+    return img
+
+
+def overlap_score(genome_skeleton: np.ndarray, ref_skeleton: np.ndarray, ref_dt: np.ndarray,
+                  tolerance: float = 2.0) -> float:
+    """F1 overlap between two line drawings, allowing `tolerance` pixels of slack: precision = share of the
+    genome's line pixels that lie within tolerance of the target, recall = share of the target's line pixels
+    within tolerance of the genome. 1.0 = same drawing, 0.0 = nothing in common. Unlike the Chamfer distance
+    this reacts to WHERE the lines are, so it can tell patterns apart when matching one specific image."""
+    if genome_skeleton.sum() == 0 or ref_skeleton.sum() == 0:
+        return 0.0
+    genome_dt = distance_transform_edt(~genome_skeleton)
+    precision = float((ref_dt[genome_skeleton] <= tolerance).mean())
+    recall = float((genome_dt[ref_skeleton] <= tolerance).mean())
+    return 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
 
 
 def precompute_reference_transforms(dataset: List[Tuple[str, np.ndarray]]) -> ReferenceTransforms:
@@ -110,11 +197,12 @@ def _knn_mean(distances: np.ndarray, k: int) -> np.ndarray:
 
 
 def similarity_distance(genome: KolamGenome, reference_transforms: ReferenceTransforms,
-                         size: int = IMAGE_SIZE, k: int = 1) -> float:
+                         size: int = IMAGE_SIZE, k: int = 1, fast_render: bool = False) -> float:
     """Raw distance in pixels (lower = more similar): the mean of the k
     nearest references' Chamfer distances. k=1 is the original best-match
     distance; k>1 is smoother because it does not hinge on one reference."""
-    d = distances_to_refs(genome_to_skeleton(genome, size=size), reference_transforms)
+    render = genome_to_skeleton_fast if fast_render else genome_to_skeleton
+    d = distances_to_refs(render(genome, size=size), reference_transforms)
     return float(_knn_mean(d, k))
 
 
@@ -165,7 +253,8 @@ def calibrate_similarity(grid, reference_transforms: ReferenceTransforms, k: int
 
 def similarity_score(genome: KolamGenome, reference_transforms: ReferenceTransforms,
                       size: int = IMAGE_SIZE, scale: float = 20.0,
-                      k: int = 1, calibration=None) -> float:
+                      k: int = 1, calibration=None, mode: str = "chamfer",
+                      tolerance: float = 2.0, fast_render: bool = False) -> float:
     """Renders + preprocesses the genome, compares it against every
     precomputed reference (via precompute_reference_transforms) using
     Chamfer distance, and maps the distance to a [0, 1] score.
@@ -176,7 +265,10 @@ def similarity_score(genome: KolamGenome, reference_transforms: ReferenceTransfo
     average distance, which keeps differences between genomes visible.
     `k` averages the k nearest references instead of using only the best one.
     """
-    d = similarity_distance(genome, reference_transforms, size=size, k=k)
+    if mode == "overlap":   # imitate specific image(s): best F1 overlap with any of the targets
+        sk = (genome_to_skeleton_fast if fast_render else genome_to_skeleton)(genome, size=size)
+        return max(overlap_score(sk, rs, rdt, tolerance) for _n, rs, rdt in reference_transforms)
+    d = similarity_distance(genome, reference_transforms, size=size, k=k, fast_render=fast_render)
     if calibration is None:
         return float(np.exp(-d / scale))
     z = (d - calibration["mu"]) / calibration["sigma"]

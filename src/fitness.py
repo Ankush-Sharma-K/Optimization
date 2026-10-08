@@ -140,7 +140,10 @@ def fitness(genome: KolamGenome, reference_transforms=None,
             similarity_weight: float = 1 / 3,
             similarity_scale: float = 20.0,
             similarity_k: int = 1,
-            similarity_calibration=None) -> float:
+            similarity_calibration=None,
+            similarity_mode: str = "chamfer",
+            similarity_tolerance: float = 2.0,
+            similarity_fast_render: bool = False) -> float:
     """Weighted combination of symmetry, loop-closure, and (if a dataset is
     supplied) dataset-similarity.
 
@@ -163,7 +166,9 @@ def fitness(genome: KolamGenome, reference_transforms=None,
     from similarity import similarity_score  # local import: keeps fitness.py
     # usable without matplotlib/scipy/renderer when no dataset is used
     sim = similarity_score(genome, reference_transforms, scale=similarity_scale,
-                           k=similarity_k, calibration=similarity_calibration)
+                           k=similarity_k, calibration=similarity_calibration,
+                           mode=similarity_mode, tolerance=similarity_tolerance,
+                           fast_render=similarity_fast_render)
     return symmetry_weight * s + loop_weight * l + similarity_weight * sim
 
 

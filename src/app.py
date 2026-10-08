@@ -85,6 +85,9 @@ with st.sidebar:
                                      "(about 50 times slower).")
 
     run_clicked = st.button("Evolve a Kolam", type="primary")
+    variants_clicked = st.button("Make 6 variants", disabled=not fast_mode,
+                                 help="Runs six different random seeds with your settings and shows the results "
+                                      "side by side (fast mode only).")
     st.caption("Fast mode: a run takes seconds." if fast_mode else
                "Comparing pictures while evolving: a run usually takes a few minutes, depending on your computer.")
 
@@ -128,8 +131,9 @@ if start_mode == "Draw my own pattern":
 elif start_mode == "Evolve my last result" and last is not None and last.settings.grid_n == grid_n:
     start_pattern = list(last.chromosome)
 
-# ---------------------------------------------------------------- run
-if run_clicked:
+# ---------------------------------------------------------------- helpers
+def build_settings():
+    """RunSettings from the sidebar; shows an error and stops the app if something is wrong."""
     settings = ac.RunSettings(grid_n=int(grid_n), symmetry_mode=symmetry_mode,
                               population_size=int(population_size), generations=int(generations),
                               sample_size=int(sample_size), seed=int(seed), fast_mode=bool(fast_mode))
@@ -144,7 +148,20 @@ if run_clicked:
     except ValueError as e:
         st.error(str(e))
         st.stop()
+    return settings
 
+
+def show_result(result, png, match_png, start_png=None):
+    """Keep a result in session_state: clicking a button reruns the whole script."""
+    st.session_state["result"] = result
+    st.session_state["png"] = png
+    st.session_state["match_png"] = match_png
+    st.session_state["start_png"] = start_png
+
+
+# ---------------------------------------------------------------- run
+if run_clicked:
+    settings = build_settings()
     bar = st.progress(0.0, text="Starting...")
     chart_slot = st.empty()
     live = {"best": [], "average": []}
@@ -166,12 +183,26 @@ if run_clicked:
         st.stop()
     bar.progress(1.0, text=f"Done in {fmt_seconds(result.elapsed_s)}")
     chart_slot.empty()
-    # keep results in session_state: clicking a download button reruns the script
-    st.session_state["result"] = result
-    st.session_state["png"] = ac.render_png(result.genome)
-    st.session_state["start_png"] = (ac.render_pattern_png(
-        ac.effective_start_pattern(start_pattern, settings.grid_n, symmetry_mode), settings.grid_n)
-        if start_pattern is not None else None)
+    show_result(result, ac.render_png(result.genome), ac.match_png(result),
+                ac.render_pattern_png(ac.effective_start_pattern(start_pattern, settings.grid_n, symmetry_mode),
+                                      settings.grid_n) if start_pattern is not None else None)
+
+if variants_clicked:
+    settings = build_settings()
+    vbar = st.progress(0.0, text="Making variants...")
+
+    def on_variant(done, total, res):
+        vbar.progress(done / total, text=f"Variant {done} of {total} | symmetry {res.symmetry:.2f} | "
+                                         f"loop closure {res.loop_closure:.2f}")
+
+    try:
+        variants = ac.run_variants(refs, settings, n=6, on_progress=on_variant)
+    except Exception as e:
+        st.error(f"Could not make variants: {e}")
+        st.stop()
+    vbar.empty()
+    st.session_state["gallery"] = [{"result": r, "png": ac.render_png(r.genome), "match_png": ac.match_png(r)}
+                                   for r in variants]
 
 # ---------------------------------------------------------------- result
 result = st.session_state.get("result")
@@ -203,6 +234,18 @@ else:
                            data=json.dumps(ac.result_summary(result), indent=2),
                            file_name=f"kolam_grid{s.grid_n}_seed{s.seed}.json", mime="application/json")
 
+    if st.session_state.get("match_png"):
+        st.subheader("Closest real Kolam in the dataset")
+        m1, m2 = st.columns([1, 2])
+        with m1:
+            st.image(st.session_state["match_png"], width=260,
+                     caption=f"{result.match_name} (line drawing)")
+        with m2:
+            st.write(f"Closest by pixel distance: **{result.d_min:.2f} px** (lower = more alike).")
+            st.caption("This is the dataset image whose lines lie nearest to the evolved pattern. Because every "
+                       "pattern the GA can build covers the canvas in a similar way, this measures how dense the "
+                       "lines are more than how the shapes compare, so expect a loose match, not a copy.")
+
     if st.session_state.get("start_png"):
         st.subheader("Where it started")
         st.image(st.session_state["start_png"], width=260,
@@ -216,6 +259,22 @@ else:
                    "closure). The comparison with real Kolams is done once, at the end.")
     else:
         st.caption("Fitness of the best and the average pattern in each generation.")
+
+gallery = st.session_state.get("gallery")
+if gallery:
+    st.subheader("Variants")
+    st.caption("Same settings, different random seeds. Press **Show this one** to look at one in detail "
+               "(and to use it for 'Evolve my last result').")
+    for first in range(0, len(gallery), 3):
+        for col, idx in zip(st.columns(3), range(first, min(first + 3, len(gallery)))):
+            item = gallery[idx]
+            r = item["result"]
+            with col:
+                st.image(item["png"], width=220,
+                         caption=f"Seed {r.settings.seed} | loops {r.loop_closure:.2f} | distance {r.d_min:.2f} px")
+                if st.button("Show this one", key=f"show_variant_{idx}"):
+                    show_result(r, item["png"], item["match_png"])
+                    st.rerun()
 
 with st.expander("About this app"):
     st.write(
